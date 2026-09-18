@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Carnet de commandes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --crust: #3E2A1E; --crust-2: #4F3625; --flour: #FBF7EF; --crumb: #EFE4CE; --crumb-2: #E3D4B4;
+    --ink: #2B211A; --ink-soft: #6B5D4E; --wheat: #C68A1A; --wheat-dark: #9C6B0E;
+    --jam: #A13D2C; --jam-soft: #F3DED8; --sage: #5C7A52; --sage-soft: #E1E9DA;
+    --border: #DCCBA6; --shadow: 0 2px 10px rgba(62,42,30,0.08); --radius: 10px;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  :root:not([data-theme="light"]) {
+    @media (prefers-color-scheme: dark) {
+      --flour: #211A13; --crumb: #2C2319; --crumb-2: #362B1E; --ink: #F1E7D6;
+      --ink-soft: #C2AD8E; --border: #4A3B26; --crust: #17110B; --crust-2: #221A11;
+    }
+  }
+  :root[data-theme="dark"] {
+    --flour: #211A13; --crumb: #2C2319; --crumb-2: #362B1E; --ink: #F1E7D6;
+    --ink-soft: #C2AD8E; --border: #4A3B26; --crust: #17110B; --crust-2: #221A11;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--flour); color: var(--ink); min-height: 100vh; }
+  ::selection { background: var(--wheat); color: #fff; }
+
+  header.top {
+    background: var(--crust); color: var(--flour); padding: 14px 22px;
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;
+    position: sticky; top: 0; z-index: 30;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand .mark { font-size: 24px; }
+  .brand h1 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 19px; margin: 0; }
+  nav.tabs { display: flex; gap: 4px; background: rgba(0,0,0,0.18); padding: 4px; border-radius: 9px; flex-wrap: wrap; }
+  nav.tabs button {
+    background: transparent; border: none; color: #E9DCC3; padding: 7px 13px; border-radius: 6px;
+    font-size: 13.5px; font-weight: 600; cursor: pointer; font-family: inherit; white-space: nowrap;
+  }
+  nav.tabs button.active { background: var(--wheat); color: #2B1D08; }
+  .header-right { display: flex; align-items: center; gap: 10px; }
+  .whoami { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.08); border-radius: 20px; padding: 4px 6px 4px 12px; font-size: 12.5px; color: #E9DCC3; }
+  .whoami .avatar { width: 22px; height: 22px; border-radius: 50%; background: var(--wheat); color: #2B1D08; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
+  .whoami button { background: none; border: none; color: #C9B590; font-size: 11px; cursor: pointer; text-decoration: underline; font-family: inherit; }
+  .icon-btn { background: none; border: none; color: #E9DCC3; font-size: 16px; cursor: pointer; padding: 4px 6px; }
+  .sync-dot { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: #C9B590; }
+  .sync-dot i { width: 7px; height: 7px; border-radius: 50%; background: var(--sage); display: inline-block; }
+  .sync-dot.offline i { background: var(--jam); }
+
+  main { max-width: 1220px; margin: 0 auto; padding: 24px 18px 80px; }
+
+  .layout { display: grid; grid-template-columns: 360px 1fr; gap: 24px; align-items: start; }
+  @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+
+  .panel { background: var(--crumb); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); }
+  .panel h2 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 18px; margin: 0 0 16px; }
+
+  label { display: block; font-size: 12.5px; font-weight: 600; color: var(--ink-soft); margin: 14px 0 5px; }
+  label:first-of-type { margin-top: 0; }
+  input[type=text], input[type=date], input[type=month], input[type=number], input[type=tel], input[type=email], input[type=password], textarea, select {
+    width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 7px;
+    background: var(--flour); color: var(--ink); font-size: 14px; font-family: inherit;
+  }
+  textarea { resize: vertical; min-height: 54px; }
+  input:focus, textarea:focus, select:focus, button:focus-visible { outline: 2px solid var(--wheat); outline-offset: 1px; }
+
+  .client-pick { position: relative; }
+  .client-results { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: var(--flour); border: 1px solid var(--border); border-radius: 7px; box-shadow: var(--shadow); z-index: 5; max-height: 190px; overflow-y: auto; }
+  .client-results div { padding: 8px 11px; font-size: 13.5px; cursor: pointer; }
+  .client-results div:hover { background: var(--crumb-2); }
+  .client-chip { display: flex; align-items: center; justify-content: space-between; background: var(--sage-soft); border: 1px solid var(--sage); border-radius: 7px; padding: 8px 11px; font-size: 13.5px; margin-top: 6px; }
+  .client-chip button { background: none; border: none; color: var(--sage); cursor: pointer; font-size: 12px; font-weight: 700; padding: 0; }
+
+  .items-list { margin-top: 6px; display: flex; flex-direction: column; gap: 8px; }
+  .item-row { display: grid; grid-template-columns: 1fr 64px 26px; gap: 6px; align-items: center; }
+  .item-row input { padding: 7px 9px; font-size: 13.5px; }
+  .item-row .del { background: none; border: none; color: var(--jam); font-size: 16px; cursor: pointer; padding: 0; }
+  .quick-add { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .quick-add button {
+    background: var(--flour); border: 1px solid var(--border); color: var(--ink); font-size: 12.5px;
+    padding: 5px 10px; border-radius: 20px; cursor: pointer; font-family: inherit;
+  }
+  .quick-add button:hover { border-color: var(--wheat); color: var(--wheat-dark); }
+  .quick-add button.other { border-style: dashed; }
+
+  .btn-main { width: 100%; margin-top: 16px; background: var(--wheat); color: #2B1D08; border: none; padding: 12px; border-radius: 8px; font-weight: 700; font-size: 14.5px; cursor: pointer; font-family: inherit; }
+  .btn-main:hover { background: var(--wheat-dark); color: #fff; }
+  .btn-main.small { width: auto; margin: 0; padding: 9px 16px; }
+  .btn-ghost { background: none; border: 1px solid var(--border); color: var(--ink-soft); padding: 8px 12px; border-radius: 7px; font-size: 13px; cursor: pointer; font-family: inherit; }
+  .btn-ghost:hover { border-color: var(--ink-soft); color: var(--ink); }
+
+  .list-toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; justify-content: space-between; }
+  .list-toolbar input[type=text] { max-width: 220px; }
+  .list-title { font-family: 'Fraunces', serif; font-weight: 600; font-size: 16px; }
+
+  .order-card { background: var(--flour); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px; display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; }
+  .order-card .client-name { font-family: 'Fraunces', serif; font-weight: 600; font-size: 16px; }
+  .order-card .deliv { font-size: 11.5px; font-weight: 700; color: var(--wheat-dark); text-transform: capitalize; }
+  .order-card .items-summary { grid-column: 1 / 2; font-size: 13.5px; color: var(--ink-soft); line-height: 1.5; }
+  .order-card .notes { grid-column: 1 / 2; font-size: 12.5px; color: var(--ink-soft); font-style: italic; }
+  .order-card .who { grid-column: 1 / 2; font-size: 11px; color: var(--ink-soft); opacity: 0.75; }
+  .order-card .side { grid-row: 1 / 5; grid-column: 2; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; justify-content: space-between; }
+  .card-actions { display: flex; gap: 8px; }
+  .card-actions button { background: none; border: none; cursor: pointer; color: var(--ink-soft); font-size: 14px; padding: 2px; }
+  .card-actions button:hover { color: var(--jam); }
+
+  .empty { text-align: center; padding: 50px 20px; color: var(--ink-soft); }
+  .empty .mark { font-size: 34px; display: block; margin-bottom: 10px; }
+
+  .client-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+  .client-card { background: var(--flour); border: 1px solid var(--border); border-radius: var(--radius); padding: 15px; cursor: pointer; }
+  .client-card:hover { border-color: var(--wheat); }
+  .client-card .name { font-family: 'Fraunces', serif; font-weight: 600; font-size: 16px; }
+  .client-card .meta { font-size: 12.5px; color: var(--ink-soft); margin-top: 4px; line-height: 1.5; }
+  .client-card .count { display: inline-block; margin-top: 8px; font-size: 11.5px; font-weight: 700; background: var(--crumb-2); padding: 3px 9px; border-radius: 20px; color: var(--ink-soft); }
+
+  .top-actions { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px; }
+  .top-actions h2 { margin: 0; font-family: 'Fraunces', serif; font-size: 19px; }
+
+  .modal-bg { position: fixed; inset: 0; background: rgba(43,33,26,0.5); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+  .modal { background: var(--flour); border-radius: var(--radius); padding: 22px; max-width: 440px; width: 100%; max-height: 86vh; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.25); }
+  .modal h3 { font-family: 'Fraunces', serif; margin: 0 0 14px; font-size: 18px; }
+  .modal-actions { display: flex; gap: 8px; margin-top: 18px; flex-wrap: wrap; }
+  .modal-actions .btn-main { margin-top: 0; width: auto; flex: 1; }
+
+  .product-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .product-tag { display: flex; align-items: center; gap: 6px; background: var(--crumb-2); border-radius: 20px; padding: 4px 6px 4px 11px; font-size: 12.5px; }
+  .product-tag button { background: none; border: none; color: var(--ink-soft); cursor: pointer; font-size: 12px; padding: 0; }
+  .add-product-row { display: flex; gap: 6px; margin-top: 8px; }
+  .add-product-row input { flex: 1; }
+  .add-product-row button { flex-shrink: 0; }
+
+  .fab { display: none; position: fixed; bottom: 22px; right: 22px; width: 54px; height: 54px; border-radius: 50%; background: var(--wheat); color: #2B1D08; border: none; font-size: 26px; box-shadow: 0 6px 18px rgba(0,0,0,0.25); cursor: pointer; z-index: 20; }
+  @media (max-width: 860px) {
+    .fab { display: block; }
+    .layout .panel:first-child { display: none; }
+    .layout .panel:first-child.mobile-open { display: block; position: fixed; inset: 0; z-index: 40; border-radius: 0; overflow-y: auto; max-height: 100vh; top: 62px; }
+  }
+  .mobile-close { display: none; }
+  @media (max-width: 860px) { .mobile-close { display: block; margin-bottom: 10px; background: none; border: none; color: var(--ink-soft); font-size: 13px; cursor: pointer; font-family: inherit; font-weight: 600; } }
+
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .hint { font-size: 11.5px; color: var(--ink-soft); margin-top: 4px; }
+
+  .login-screen { min-height: calc(100vh - 0px); display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .login-box { background: var(--crumb); border: 1px solid var(--border); border-radius: var(--radius); padding: 30px 26px; max-width: 360px; width: 100%; box-shadow: var(--shadow); text-align: center; }
+  .login-box .mark { font-size: 38px; }
+  .login-box h1 { font-family: 'Fraunces', serif; font-size: 21px; margin: 6px 0 20px; }
+  .employee-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  .employee-btn { background: var(--flour); border: 1px solid var(--border); border-radius: 9px; padding: 14px 8px; cursor: pointer; font-family: inherit; font-weight: 600; font-size: 13.5px; color: var(--ink); }
+  .employee-btn:hover { border-color: var(--wheat); }
+  .employee-btn .avatar2 { width: 38px; height: 38px; border-radius: 50%; background: var(--wheat); color: #2B1D08; display: flex; align-items: center; justify-content: center; font-weight: 700; margin: 0 auto 6px; }
+
+  .cal-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px; }
+  .cal-nav { display: flex; align-items: center; gap: 10px; }
+  .cal-nav button { background: var(--flour); border: 1px solid var(--border); border-radius: 7px; padding: 6px 12px; cursor: pointer; font-family: inherit; font-weight: 700; }
+  .cal-range { font-family: 'Fraunces', serif; font-size: 16px; font-weight: 600; text-transform: capitalize; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; }
+  @media (max-width: 900px) { .cal-grid { grid-template-columns: 1fr; } }
+  .cal-day { background: var(--flour); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; min-height: 140px; }
+  .cal-day.today { border-color: var(--wheat); box-shadow: 0 0 0 1px var(--wheat) inset; }
+  .cal-day-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .cal-day-head .dname { font-family: 'Fraunces', serif; font-weight: 600; font-size: 13.5px; text-transform: capitalize; }
+  .cal-day-head .dnum { font-size: 12px; color: var(--ink-soft); }
+  .cal-order { background: var(--crumb); border: 1px solid var(--border); border-radius: 7px; padding: 7px 9px; margin-bottom: 6px; font-size: 12px; cursor: pointer; }
+  .cal-order .cn { font-weight: 700; }
+  .cal-order .ci { color: var(--ink-soft); line-height: 1.4; }
+  .cal-empty { font-size: 11.5px; color: var(--ink-soft); opacity: 0.6; padding: 6px 0; }
+  .unscheduled-box { margin-top: 18px; }
+
+  .recap-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .recap-client { background: var(--flour); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 14px; }
+  .recap-client h3 { font-family: 'Fraunces', serif; font-size: 16px; margin: 0 0 4px; }
+  .recap-client .n { font-size: 12px; color: var(--ink-soft); margin-bottom: 10px; }
+  .recap-table { width: 100%; border-collapse: collapse; }
+  .recap-table td { padding: 6px 4px; border-bottom: 1px solid var(--border); font-size: 13.5px; }
+  .recap-table td.num { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .recap-table tr:last-child td { border-bottom: none; }
+
+  .import-box { background: var(--flour); border: 1px dashed var(--wheat); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 18px; font-size: 13px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(10px);
+    background: var(--crust); color: var(--flour); padding: 11px 18px; border-radius: 8px;
+    font-size: 13.5px; box-shadow: 0 6px 20px rgba(0,0,0,0.25); z-index: 80; max-width: 90vw;
+    text-align: center; opacity: 0; transition: opacity 0.2s ease, transform 0.2s ease; pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .confirm-modal .modal { max-width: 340px; text-align: center; }
+  .confirm-modal .modal-actions { justify-content: center; }
+  .confirm-modal .modal-actions button { flex: 1; }
+  .confirm-modal .danger { background: var(--jam); color: #fff; }
+</style>
+</head>
+<body>
+
+<header class="top" id="topHeader" style="display:none;">
+  <div class="brand"><span class="mark">🥖</span><h1>Carnet de commandes</h1></div>
+  <nav class="tabs">
+    <button class="active" data-tab="commandes">Accueil</button>
+    <button data-tab="calendrier">Calendrier</button>
+    <button data-tab="recap">Récapitulatif</button>
+    <button data-tab="clients">Clients</button>
+  </nav>
+  <div class="header-right">
+    <span class="sync-dot" id="syncDot"><i></i><span id="syncLabel">Synchronisation…</span></span>
+    <button class="icon-btn" id="settingsBtn" title="Salariés">⚙</button>
+    <div class="whoami" id="whoami"></div>
+  </div>
+</header>
+
+<div id="loginRoot"><div class="login-screen"><div class="login-box"><div class="mark">🥖</div><h1>Chargement…</h1></div></div></div>
+
+<main id="mainRoot" style="display:none;">
+  <div id="view-commandes"></div>
+  <div id="view-calendrier" style="display:none"></div>
+  <div id="view-recap" style="display:none"></div>
+  <div id="view-clients" style="display:none"></div>
+</main>
+
+<button class="fab" id="fab" title="Nouvelle commande">+</button>
+<div id="modalRoot"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/firebase@10.13.0/firebase-app-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/firebase@10.13.0/firebase-firestore-compat.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  // ---------- Firebase (base de données indépendante de Claude) ----------
+  const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyAj72BIjj0SLERFXsxfIF3EGsz6juO_9sY",
+    authDomain: "commande-pro.firebaseapp.com",
+    projectId: "commande-pro",
+    storageBucket: "commande-pro.firebasestorage.app",
+    messagingSenderId: "968466285592",
+    appId: "1:968466285592:web:cf3295a540f1f3bc95af6d"
+  };
+
+  // ---------- imported catalog (from the user's spreadsheet) ----------
+  const IMPORT_CLIENTS = [{"name": "Hulot", "products": ["Petits pains blanc", "Sac de croutons"]}, {"name": "Bois de la grée", "products": ["croissant", "pain choc", "tradition", "Bout carrée", "pavé campagne", "pavé arthur", "pain aux raisins", "chaussons au pommes", "sablé au pommes", "viennoise chocolat", "viennoise nature", "brioche tréssée"]}, {"name": "café de la plage", "products": ["arthur 2kg", "pain burger 100g", "baguettes tradition"]}, {"name": "Atlantia", "products": ["mini kouign", "mini croissant", "mini pain choc", "mini nantais"]}, {"name": "14 avenue", "products": ["Pavé d'arthur", "Kouign indiv"]}, {"name": "Pep 75", "products": ["Pain 400G", "baguette moulée", "baguette carrée"]}, {"name": "kymye", "products": ["Pain campagne 800g"]}, {"name": "dudu", "products": ["pavé d'arthur", "pain burger 100g", "baguette carrée"]}, {"name": "commune batz sur mer", "products": ["pain 400G"]}, {"name": "Restauration scolaire Le pouliguen", "products": ["Pain 400G", "Baguerre carrée"]}, {"name": "concorde", "products": ["mini croissant", "mini pain choc", "mini brioche", "mini roulés choc", "baguettes tradition", "pavé arthur", "pain de seigle"]}, {"name": "voile d'or", "products": ["gros pain meule 1,5kg", "petit pain", "citron meringuée", "baba", "baguettes tradition", "croques"]}, {"name": "cafés jules", "products": ["pp blanc", "burger adultes", "burger enfants", "Sac de croutons", "plaque de kougn"]}, {"name": "grand voile crèches", "products": ["baguettes tradition", "pavé campagne", "pavé arthur", "pain complet", "baguette arthur", "pain mie carré", "viennoise chocolat"]}, {"name": "Club de l'étoile", "products": ["pain à croques", "sac croutons", "baguette arthur", "baguettes tradition"]}, {"name": "cabanne", "products": ["burger 75g", "Gros arthur", "baguettes tradition"]}, {"name": "cottage", "products": ["baguettes tradition", "croissant", "pain choc", "pain aux raisins", "burger 100G", "cookie"]}, {"name": "Etier", "products": ["pain 400G", "baguette moulée"]}, {"name": "cramphore", "products": ["Baguerre carrée", "baguettes tradition", "croissant", "pain choc", "sablé au pommes", "pain aux raisins", "viennoise nature", "brioche individuelle nature", "pavé campagne", "pain complet", "pavé arthur", "viennoise chocolat", "chaussons au pommes", "brioche tréssée"]}, {"name": "Royal", "products": []}, {"name": "ponton", "products": []}, {"name": "Casino", "products": []}, {"name": "cimes bleu", "products": ["petit epeautre", "pain complet", "pavé arthur", "ciabatta", "sarrasin", "burger 100G", "foccacia purée", "cookies", "viennoise chocolat", "baguettes tradition", "bandes pommes", "bandes abricot", "bandes framboises"]}, {"name": "apparté", "products": ["petit pain arthur", "petit pain blanc", "foccacia", "petit pain fruits", "pavé arthur fruits"]}];
+
+  // ---------- state ----------
+  let db = null;
+  let clients = [];
+  let orders = [];
+  let employees = [];
+  let currentEmployee = null;
+  let currentTab = 'commandes';
+  let searchQuery = '';
+  let editingOrderId = null;
+  let draft = { clientId: null, clientName: '', items: [], deliveryDate: '', notes: '' };
+  let clientQuery = '';
+  let mobileFormOpen = false;
+  let calWeekStart = startOfWeek(new Date());
+  let recapMonth = currentMonthStr();
+
+  function uid(){ return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
+  function fmtDate(d){
+    if(!d) return 'Sans date';
+    const dt = new Date(d + 'T00:00:00');
+    if(isNaN(dt)) return d;
+    return dt.toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long' });
+  }
+  function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function toISO(d){ const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}`; }
+  function startOfWeek(d){ const dt=new Date(d); const day=(dt.getDay()+6)%7; dt.setDate(dt.getDate()-day); dt.setHours(0,0,0,0); return dt; }
+  function currentMonthStr(){ const n=new Date(); return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0'); }
+  function initials(name){ return (name||'?').trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase(); }
+  const DAY_NAMES = ['lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche'];
+
+  // ---------- custom toast (replaces alert, which can be blocked) ----------
+  let toastTimer = null;
+  function toast(msg){
+    let el = document.getElementById('toastBox');
+    if(!el){ el = document.createElement('div'); el.id = 'toastBox'; el.className = 'toast'; document.body.appendChild(el); }
+    el.textContent = msg;
+    requestAnimationFrame(() => el.classList.add('show'));
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+  }
+
+  // ---------- custom confirm (replaces confirm, which can be blocked) ----------
+  function askConfirm(message, onYes, confirmLabel){
+    const holder = document.createElement('div');
+    holder.className = 'modal-bg confirm-modal';
+    holder.innerHTML = `
+      <div class="modal">
+        <p style="margin:0 0 4px;font-size:14.5px;">${escapeHtml(message)}</p>
+        <div class="modal-actions">
+          <button class="btn-ghost" id="ccCancel">Annuler</button>
+          <button class="btn-main danger" id="ccOk">${escapeHtml(confirmLabel || 'Supprimer')}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(holder);
+    function cleanup(){ holder.remove(); }
+    holder.addEventListener('click', e => { if(e.target === holder) cleanup(); });
+    holder.querySelector('#ccCancel').addEventListener('click', cleanup);
+    holder.querySelector('#ccOk').addEventListener('click', () => { cleanup(); onYes(); });
+  }
+
+  // ---------- local device convenience ----------
+  function rememberEmployee(id){ try{ localStorage.setItem('carnet_employee_id', id); }catch(e){} }
+  function forgetEmployee(){ try{ localStorage.removeItem('carnet_employee_id'); }catch(e){} }
+  function recallEmployeeId(){ try{ return localStorage.getItem('carnet_employee_id'); }catch(e){ return null; } }
+
+  // ---------- db wiring ----------
+  async function initDb(){
+    try {
+      if(!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+      db = firebase.firestore();
+    } catch(e) { db = null; }
+    if(!db){
+      setSyncStatus(false, "Mode local (pas de synchro)");
+      employees = [{id:'local', name:'Moi', code:''}];
+      currentEmployee = employees[0];
+      showApp();
+      return;
+    }
+    setSyncStatus(true, "Synchronisé");
+    let gotEmployees = false;
+    db.collection('employees').orderBy('name','asc').onSnapshot(snap => {
+      employees = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if(!gotEmployees){
+        gotEmployees = true;
+        const recalled = recallEmployeeId();
+        if(recalled){ const e = employees.find(x=>x.id===recalled); if(e) currentEmployee = e; }
+      } else if(currentEmployee){
+        const fresh = employees.find(x=>x.id===currentEmployee.id);
+        if(fresh) currentEmployee = fresh;
+      }
+      renderLoginOrApp();
+      renderSettingsIfOpen();
+    }, err => { setSyncStatus(false, 'Connexion perdue'); });
+
+    db.collection('clients').orderBy('name','asc').onSnapshot(snap => {
+      clients = snap.docs.map(d => ({ id: d.id, products: [], ...d.data() }));
+      renderCurrentView();
+    }, err => { setSyncStatus(false, 'Connexion perdue'); });
+
+    db.collection('orders').onSnapshot(snap => {
+      orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      renderCurrentView();
+    }, err => { setSyncStatus(false, 'Connexion perdue'); });
+  }
+  function setSyncStatus(ok, label){
+    document.getElementById('syncLabel').textContent = label;
+    document.getElementById('syncDot').classList.toggle('offline', !ok);
+  }
+
+  // ---------- CRUD ----------
+  async function saveClient(c){
+    if(db){ if(!c.id) c.id = uid(); await db.collection('clients').doc(c.id).set(c); }
+    else { if(!c.id){ c.id = uid(); clients.push(c); } else { const i=clients.findIndex(x=>x.id===c.id); clients[i]=c; } renderCurrentView(); }
+    return c;
+  }
+  async function deleteClientDb(id){
+    if(db){ await db.collection('clients').doc(id).delete(); }
+    else { clients = clients.filter(c=>c.id!==id); renderCurrentView(); }
+  }
+  async function saveOrder(o){
+    if(db){ if(!o.id) o.id = uid(); await db.collection('orders').doc(o.id).set(o); }
+    else { if(!o.id){ o.id = uid(); orders.push(o); } else { const i=orders.findIndex(x=>x.id===o.id); orders[i]=o; } renderCurrentView(); }
+    return o;
+  }
+  async function deleteOrderDb(id){
+    if(db){ await db.collection('orders').doc(id).delete(); }
+    else { orders = orders.filter(o=>o.id!==id); renderCurrentView(); }
+  }
+  async function saveEmployee(e){
+    if(db){ if(!e.id) e.id = uid(); await db.collection('employees').doc(e.id).set(e); }
+    else { if(!e.id){ e.id=uid(); employees.push(e);} else { const i=employees.findIndex(x=>x.id===e.id); employees[i]=e;} }
+    return e;
+  }
+  async function deleteEmployeeDb(id){
+    if(db){ await db.collection('employees').doc(id).delete(); }
+    else { employees = employees.filter(e=>e.id!==id); }
+  }
+
+  function renderCurrentView(){
+    if(!currentEmployee) return;
+    if(currentTab==='recap' && !canViewRecap()) currentTab = 'commandes';
+    if(currentTab==='commandes') renderCommandes();
+    else if(currentTab==='calendrier') renderCalendrier();
+    else if(currentTab==='recap') renderRecap();
+    else if(currentTab==='clients') renderClients();
+  }
+
+  // ---------- LOGIN ----------
+  function renderLoginOrApp(){ if(currentEmployee){ showApp(); } else { showLogin(); } }
+  function showApp(){
+    document.getElementById('topHeader').style.display = '';
+    document.getElementById('loginRoot').innerHTML = '';
+    document.getElementById('mainRoot').style.display = '';
+    renderWhoAmI();
+    render();
+  }
+  function showLogin(){
+    document.getElementById('topHeader').style.display = 'none';
+    document.getElementById('mainRoot').style.display = 'none';
+    document.getElementById('fab').style.display = 'none';
+    const root = document.getElementById('loginRoot');
+    if(employees.length === 0){
+      root.innerHTML = `
+        <div class="login-screen"><div class="login-box">
+          <div class="mark">🥖</div>
+          <h1>Bienvenue — créons ton premier profil</h1>
+          <label style="text-align:left;">Ton prénom</label>
+          <input type="text" id="newName" placeholder="Ex: Camille">
+          <label style="text-align:left;">Code personnel (4 chiffres)</label>
+          <input type="password" id="newCode" inputmode="numeric" maxlength="6" placeholder="••••">
+          <button class="btn-main" id="createFirst">Créer et entrer</button>
+        </div></div>`;
+      document.getElementById('createFirst').addEventListener('click', async () => {
+        const name = document.getElementById('newName').value.trim();
+        const code = document.getElementById('newCode').value.trim();
+        if(!name){ toast('Indique ton prénom.'); return; }
+        const e = await saveEmployee({ name, code, canViewRecap: true, canCreateClients: true });
+        currentEmployee = e; rememberEmployee(e.id);
+        showApp();
+      });
+      return;
+    }
+    root.innerHTML = `
+      <div class="login-screen"><div class="login-box">
+        <div class="mark">🥖</div>
+        <h1>Qui es-tu ?</h1>
+        <div class="employee-grid" id="empGrid">
+          ${employees.map(e => `<button class="employee-btn" data-id="${e.id}"><div class="avatar2">${initials(e.name)}</div>${escapeHtml(e.name)}</button>`).join('')}
+        </div>
+        <button class="btn-ghost" id="addEmpBtn" style="width:100%;">+ Ajouter un profil</button>
+      </div></div>`;
+    document.getElementById('empGrid').addEventListener('click', e => {
+      const b = e.target.closest('.employee-btn'); if(!b) return;
+      promptCode(employees.find(x=>x.id===b.dataset.id));
+    });
+    document.getElementById('addEmpBtn').addEventListener('click', renderAddProfile);
+  }
+  function renderAddProfile(){
+    document.getElementById('loginRoot').innerHTML = `
+      <div class="login-screen"><div class="login-box">
+        <div class="mark">🥖</div>
+        <h1>Nouveau profil</h1>
+        <label style="text-align:left;">Prénom</label>
+        <input type="text" id="newName" placeholder="Ex: Camille">
+        <label style="text-align:left;">Code personnel (4 chiffres)</label>
+        <input type="password" id="newCode" inputmode="numeric" maxlength="6" placeholder="••••">
+        <div class="modal-actions">
+          <button class="btn-main" id="createOne">Créer et entrer</button>
+          <button class="btn-ghost" id="backLogin">Retour</button>
+        </div>
+      </div></div>`;
+    document.getElementById('backLogin').addEventListener('click', showLogin);
+    document.getElementById('createOne').addEventListener('click', async () => {
+      const name = document.getElementById('newName').value.trim();
+      const code = document.getElementById('newCode').value.trim();
+      if(!name){ toast('Indique un prénom.'); return; }
+      const e = await saveEmployee({ name, code, canViewRecap: false, canCreateClients: false });
+      currentEmployee = e; rememberEmployee(e.id);
+      showApp();
+    });
+  }
+  function promptCode(emp){
+    document.getElementById('loginRoot').innerHTML = `
+      <div class="login-screen"><div class="login-box">
+        <div class="avatar2" style="width:52px;height:52px;font-size:18px;margin-bottom:10px;">${initials(emp.name)}</div>
+        <h1>${escapeHtml(emp.name)}</h1>
+        <label style="text-align:left;">Code personnel</label>
+        <input type="password" id="codeInput" inputmode="numeric" maxlength="6" placeholder="••••" autofocus>
+        <div id="codeErr" class="hint" style="color:var(--jam);height:14px;"></div>
+        <div class="modal-actions">
+          <button class="btn-main" id="okCode">Entrer</button>
+          <button class="btn-ghost" id="backLogin2">Retour</button>
+        </div>
+      </div></div>`;
+    const input = document.getElementById('codeInput'); input.focus();
+    function tryEnter(){
+      if((emp.code||'') === input.value.trim()){ currentEmployee = emp; rememberEmployee(emp.id); showApp(); }
+      else { document.getElementById('codeErr').textContent = 'Code incorrect.'; }
+    }
+    document.getElementById('okCode').addEventListener('click', tryEnter);
+    input.addEventListener('keydown', e => { if(e.key==='Enter') tryEnter(); });
+    document.getElementById('backLogin2').addEventListener('click', showLogin);
+  }
+  function renderWhoAmI(){
+    const box = document.getElementById('whoami');
+    if(!currentEmployee){ box.innerHTML=''; return; }
+    box.innerHTML = `<span class="avatar">${initials(currentEmployee.name)}</span> ${escapeHtml(currentEmployee.name)} <button id="switchUserBtn">changer</button>`;
+    document.getElementById('switchUserBtn').addEventListener('click', () => { currentEmployee = null; forgetEmployee(); showLogin(); });
+  }
+
+  // ---------- settings ----------
+  let settingsOpen = false;
+  document.getElementById('settingsBtn').addEventListener('click', () => { settingsOpen = true; renderSettings(); });
+  function renderSettingsIfOpen(){ if(settingsOpen) renderSettings(); }
+  function renderSettings(){
+    const modalRoot = document.getElementById('modalRoot');
+    modalRoot.innerHTML = `
+      <div class="modal-bg" id="setBg"><div class="modal">
+        <h3>Salariés &amp; accès</h3>
+        <div class="hint" style="margin-bottom:12px;">Chaque salarié ouvre l'appli avec son prénom + son code personnel. Tu choisis pour chacun s'il a accès au récapitulatif et/ou à la création de nouveaux clients.</div>
+        <div id="empList"></div>
+        <label>Ajouter un salarié</label>
+        <input type="text" id="setName" placeholder="Prénom">
+        <input type="password" id="setCode" inputmode="numeric" maxlength="6" placeholder="Code (4 chiffres)" style="margin-top:6px;">
+        <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-weight:500;">
+          <input type="checkbox" id="setRecap" style="width:auto;"> Accès au récapitulatif
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:6px;font-weight:500;">
+          <input type="checkbox" id="setCreateClients" style="width:auto;"> Accès à la création de clients
+        </label>
+        <button class="btn-main" id="setAdd">Ajouter</button>
+        <label style="margin-top:20px;">Sauvegarde</label>
+        <div class="hint" style="margin-bottom:8px;">Télécharge une copie complète de tes clients, produits et commandes — à garder de ton côté, indépendamment de l'appli.</div>
+        <button class="btn-ghost" id="exportBackup" style="width:100%;">⬇ Exporter toutes les données (JSON)</button>
+        <div class="modal-actions"><button class="btn-ghost" id="setClose" style="width:100%;">Fermer</button></div>
+      </div></div>`;
+    const list = document.getElementById('empList');
+    list.innerHTML = employees.map(e => {
+      const recap = e.canViewRecap !== false;
+      const createCl = e.canCreateClients !== false;
+      return `<div class="client-chip" style="margin-bottom:6px;flex-wrap:wrap;">
+        <span>${escapeHtml(e.name)}</span>
+        <span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <button data-id="${e.id}" class="toggleRecap" style="font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid var(--border);cursor:pointer;font-family:inherit;background:${recap?'var(--sage-soft)':'var(--flour)'};color:${recap?'var(--sage)':'var(--ink-soft)'};">Récap : ${recap?'oui':'non'}</button>
+          <button data-id="${e.id}" class="toggleCreate" style="font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid var(--border);cursor:pointer;font-family:inherit;background:${createCl?'var(--sage-soft)':'var(--flour)'};color:${createCl?'var(--sage)':'var(--ink-soft)'};">Clients : ${createCl?'oui':'non'}</button>
+          <button data-id="${e.id}" class="rmEmp">supprimer</button>
+        </span>
+      </div>`;
+    }).join('') || '<div class="hint">Aucun salarié.</div>';
+    list.querySelectorAll('.rmEmp').forEach(b => b.addEventListener('click', async () => {
+      if(employees.length<=1){ toast('Il doit rester au moins un profil.'); return; }
+      askConfirm('Supprimer ce profil ?', async () => { await deleteEmployeeDb(b.dataset.id); });
+    }));
+    list.querySelectorAll('.toggleRecap').forEach(b => b.addEventListener('click', async () => {
+      const emp = employees.find(x => x.id === b.dataset.id);
+      await saveEmployee({ ...emp, canViewRecap: !(emp.canViewRecap !== false) });
+      renderSettings();
+    }));
+    list.querySelectorAll('.toggleCreate').forEach(b => b.addEventListener('click', async () => {
+      const emp = employees.find(x => x.id === b.dataset.id);
+      await saveEmployee({ ...emp, canCreateClients: !(emp.canCreateClients !== false) });
+      renderSettings();
+    }));
+    document.getElementById('setAdd').addEventListener('click', async () => {
+      const name = document.getElementById('setName').value.trim();
+      const code = document.getElementById('setCode').value.trim();
+      const recapChecked = document.getElementById('setRecap').checked;
+      const createChecked = document.getElementById('setCreateClients').checked;
+      if(!name){ toast('Indique un prénom.'); return; }
+      await saveEmployee({ name, code, canViewRecap: recapChecked, canCreateClients: createChecked });
+      renderSettings();
+    });
+    document.getElementById('setClose').addEventListener('click', () => { settingsOpen = false; modalRoot.innerHTML=''; });
+    document.getElementById('exportBackup').addEventListener('click', exportFullBackup);
+    document.getElementById('setBg').addEventListener('click', e => { if(e.target.id==='setBg'){ settingsOpen=false; modalRoot.innerHTML=''; } });
+  }
+  function exportFullBackup(){
+    const data = {
+      exportedAt: new Date().toISOString(),
+      clients: clients,
+      orders: orders,
+      employees: employees.map(e => ({ id: e.id, name: e.name })), // codes exclus de la sauvegarde
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `carnet-sauvegarde-${toISO(new Date())}.json`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast('Sauvegarde téléchargée.');
+  }
+
+  // ---------- render root ----------
+  function canViewRecap(){ return !!currentEmployee && currentEmployee.canViewRecap !== false; }
+  function canCreateClients(){ return !!currentEmployee && currentEmployee.canCreateClients !== false; }
+  function render(){
+    if(currentTab==='recap' && !canViewRecap()) currentTab = 'commandes';
+    document.getElementById('view-commandes').style.display = currentTab==='commandes' ? '' : 'none';
+    document.getElementById('view-calendrier').style.display = currentTab==='calendrier' ? '' : 'none';
+    document.getElementById('view-recap').style.display = currentTab==='recap' ? '' : 'none';
+    document.getElementById('view-clients').style.display = currentTab==='clients' ? '' : 'none';
+    document.querySelectorAll('nav.tabs button').forEach(b => {
+      b.classList.toggle('active', b.dataset.tab===currentTab);
+      b.style.display = (b.dataset.tab==='recap' && !canViewRecap()) ? 'none' : '';
+    });
+    document.getElementById('fab').style.display = (currentTab==='commandes') ? '' : 'none';
+    if(currentTab==='commandes') renderCommandes();
+    else if(currentTab==='calendrier') renderCalendrier();
+    else if(currentTab==='recap') renderRecap();
+    else renderClients();
+  }
+
+  // ---------- COMMANDES TAB (accueil) ----------
+  function renderCommandes(){
+    const root = document.getElementById('view-commandes');
+    root.innerHTML = `
+      <div class="layout">
+        <div class="panel ${mobileFormOpen ? 'mobile-open' : ''}" id="formPanel">
+          <button class="mobile-close" id="closeForm">&larr; Fermer</button>
+          <h2>${editingOrderId ? 'Modifier la commande' : 'Nouvelle commande'}</h2>
+          ${formHtml()}
+        </div>
+        <div>
+          <div class="list-toolbar">
+            <span class="list-title">Dernières commandes prises</span>
+            <input type="text" id="searchOrders" placeholder="Rechercher un client…" value="${escapeHtml(searchQuery)}">
+          </div>
+          <div id="ordersList"></div>
+        </div>
+      </div>
+    `;
+    wireForm();
+    document.getElementById('searchOrders').addEventListener('input', e => { searchQuery = e.target.value; renderOrdersList(); });
+    document.getElementById('closeForm').addEventListener('click', () => { mobileFormOpen = false; renderCommandes(); });
+    renderOrdersList();
+  }
+
+  function clientProducts(){
+    if(!draft.clientId) return [];
+    const c = clients.find(x => x.id === draft.clientId);
+    return c && c.products ? c.products : [];
+  }
+
+  function formHtml(){
+    const prods = clientProducts();
+    return `
+      <label>Client</label>
+      <div class="client-pick">
+        ${draft.clientId ? `
+          <div class="client-chip"><span>${escapeHtml(draft.clientName)}</span><button id="clearClient" type="button">changer</button></div>
+        ` : `
+          <input type="text" id="clientSearch" placeholder="Rechercher ou créer un client…" value="${escapeHtml(clientQuery)}" autocomplete="off">
+          <div class="client-results" id="clientResults"></div>
+        `}
+      </div>
+      <label>Articles</label>
+      <div class="quick-add" id="quickAdd">
+        ${draft.clientId ? (
+          prods.length
+            ? prods.map((p,i) => `<button type="button" data-p="${escapeHtml(p)}">+ ${escapeHtml(p)}</button>`).join('')
+            : `<span class="hint">Aucun produit habituel enregistré pour ce client.</span>`
+        ) : `<span class="hint">Choisis un client pour voir ses produits habituels.</span>`}
+        <button type="button" class="other" id="addCustom">+ Autre produit</button>
+      </div>
+      <div class="items-list" id="itemsList">
+        ${draft.items.map((it, idx) => `
+          <div class="item-row" data-idx="${idx}">
+            <input type="text" class="it-name" value="${escapeHtml(it.name)}" placeholder="Article">
+            <input type="number" class="it-qty" min="0" step="1" value="${it.qty}" placeholder="Qté">
+            <button type="button" class="del" data-idx="${idx}">✕</button>
+          </div>
+        `).join('') || '<div class="hint">Aucun article ajouté</div>'}
+      </div>
+      <label>Date de livraison souhaitée</label>
+      <input type="date" id="deliveryDate" value="${draft.deliveryDate}">
+      <label>Notes</label>
+      <textarea id="orderNotes" placeholder="Précisions, horaire, allergies…">${escapeHtml(draft.notes)}</textarea>
+      <button class="btn-main" id="submitOrder">${editingOrderId ? 'Mettre à jour' : 'Enregistrer la commande'}</button>
+      ${editingOrderId ? `<button class="btn-ghost" id="cancelEdit" style="width:100%;margin-top:8px;">Annuler la modification</button>` : ''}
+    `;
+  }
+
+  function wireForm(){
+    const cs = document.getElementById('clientSearch');
+    if(cs){ cs.addEventListener('input', e => { clientQuery = e.target.value; renderClientResults(); }); cs.addEventListener('focus', renderClientResults); renderClientResults(); }
+    const clearBtn = document.getElementById('clearClient');
+    if(clearBtn) clearBtn.addEventListener('click', () => { draft.clientId=null; draft.clientName=''; clientQuery=''; refreshForm(); });
+    document.getElementById('quickAdd').addEventListener('click', e => {
+      const b = e.target.closest('button'); if(!b) return;
+      if(b.id === 'addCustom'){ draft.items.push({name:'', qty:1}); }
+      else { draft.items.push({name:b.dataset.p, qty:1}); }
+      refreshForm();
+    });
+    const itemsList = document.getElementById('itemsList');
+    itemsList.addEventListener('click', e => { const b=e.target.closest('button.del'); if(!b) return; draft.items.splice(Number(b.dataset.idx),1); refreshForm(); });
+    itemsList.addEventListener('input', e => {
+      const row = e.target.closest('.item-row'); if(!row) return;
+      const idx = Number(row.dataset.idx);
+      if(e.target.classList.contains('it-name')) draft.items[idx].name = e.target.value;
+      if(e.target.classList.contains('it-qty')) draft.items[idx].qty = e.target.value;
+    });
+    document.getElementById('deliveryDate').addEventListener('input', e => draft.deliveryDate = e.target.value);
+    document.getElementById('orderNotes').addEventListener('input', e => draft.notes = e.target.value);
+    document.getElementById('submitOrder').addEventListener('click', submitOrder);
+    const cancelBtn = document.getElementById('cancelEdit');
+    if(cancelBtn) cancelBtn.addEventListener('click', () => { resetDraft(); renderCommandes(); });
+  }
+  function refreshForm(){
+    document.getElementById('formPanel').innerHTML = `<button class="mobile-close" id="closeForm">&larr; Fermer</button><h2>${editingOrderId ? 'Modifier la commande' : 'Nouvelle commande'}</h2>${formHtml()}`;
+    wireForm();
+    document.getElementById('closeForm').addEventListener('click', () => { mobileFormOpen = false; renderCommandes(); });
+  }
+  function renderClientResults(){
+    const box = document.getElementById('clientResults'); if(!box) return;
+    const q = clientQuery.trim().toLowerCase();
+    const matches = q ? clients.filter(c => c.name.toLowerCase().includes(q)) : clients.slice(0,6);
+    let html = matches.map(c => `<div data-id="${c.id}">${escapeHtml(c.name)}</div>`).join('');
+    if(q && !clients.some(c => c.name.toLowerCase() === q)){
+      html += canCreateClients()
+        ? `<div data-new="1" style="color:var(--wheat-dark);font-weight:600;">+ Créer "${escapeHtml(clientQuery)}"</div>`
+        : `<div class="hint" style="padding:8px 11px;">Client introuvable — demande à un gérant de l'ajouter.</div>`;
+    }
+    box.innerHTML = html || '<div class="hint" style="padding:8px 11px;">Aucun client</div>';
+    box.querySelectorAll('div[data-id]').forEach(el => el.addEventListener('click', () => {
+      const c = clients.find(x => x.id === el.dataset.id);
+      draft.clientId = c.id; draft.clientName = c.name; clientQuery=''; refreshForm();
+    }));
+    const newEl = box.querySelector('div[data-new]');
+    if(newEl) newEl.addEventListener('click', async () => {
+      const name = clientQuery.trim();
+      const c = await saveClient({ name, phone:'', email:'', address:'', notes:'', products:[] });
+      draft.clientId = c.id; draft.clientName = c.name; clientQuery=''; refreshForm();
+    });
+  }
+  function resetDraft(){ editingOrderId = null; draft = { clientId:null, clientName:'', items:[], deliveryDate:'', notes:'' }; clientQuery=''; }
+  async function submitOrder(){
+    if(!draft.clientId){ toast('Choisis ou crée un client pour cette commande.'); return; }
+    const items = draft.items.map(it => ({ name:(it.name||'').trim(), qty:Number(it.qty)||0 })).filter(it => it.name);
+    if(items.length === 0){ toast('Ajoute au moins un article.'); return; }
+    const prev = editingOrderId ? orders.find(o=>o.id===editingOrderId) : null;
+    const order = {
+      id: editingOrderId,
+      clientId: draft.clientId, clientName: draft.clientName, items,
+      deliveryDate: draft.deliveryDate, notes: draft.notes.trim(),
+      createdAt: prev ? prev.createdAt : Date.now(),
+      createdBy: prev ? prev.createdBy : (currentEmployee ? currentEmployee.name : ''),
+      updatedBy: currentEmployee ? currentEmployee.name : '',
+      updatedAt: Date.now(),
+    };
+    await saveOrder(order);
+    resetDraft(); mobileFormOpen = false; renderCommandes();
+  }
+  function renderOrdersList(){
+    const box = document.getElementById('ordersList');
+    let list = orders.slice().sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
+    const q = searchQuery.trim().toLowerCase();
+    if(q) list = list.filter(o => (o.clientName||'').toLowerCase().includes(q));
+    if(!q) list = list.slice(0, 25);
+    if(list.length === 0){
+      box.innerHTML = `<div class="empty"><span class="mark">🥐</span>Aucune commande pour le moment.<br>Utilise le formulaire pour en créer une.</div>`;
+      return;
+    }
+    box.innerHTML = list.map(o => orderCardHtml(o)).join('');
+    box.querySelectorAll('.act-edit').forEach(b => b.addEventListener('click', () => openOrderForEdit(b.dataset.id)));
+    box.querySelectorAll('.act-del').forEach(b => b.addEventListener('click', () => { askConfirm('Supprimer cette commande ?', () => deleteOrderDb(b.dataset.id)); }));
+  }
+  function openOrderForEdit(id){
+    const o = orders.find(x => x.id === id);
+    editingOrderId = o.id;
+    draft = { clientId:o.clientId, clientName:o.clientName, items:o.items.map(it=>({...it})), deliveryDate:o.deliveryDate||'', notes:o.notes||'' };
+    currentTab='commandes'; mobileFormOpen = true; render();
+    window.scrollTo({top:0, behavior:'smooth'});
+  }
+  function orderCardHtml(o){
+    const summary = (o.items||[]).map(it => `${it.qty} × ${escapeHtml(it.name)}`).join(' · ');
+    return `
+      <div class="order-card">
+        <div class="client-name">${escapeHtml(o.clientName)}</div>
+        <div class="items-summary">${summary}</div>
+        ${o.notes ? `<div class="notes">${escapeHtml(o.notes)}</div>` : ''}
+        ${o.createdBy ? `<div class="who">saisie par ${escapeHtml(o.createdBy)}${o.updatedBy && o.updatedBy!==o.createdBy ? ' · modifiée par '+escapeHtml(o.updatedBy) : ''}</div>` : ''}
+        <div class="side">
+          <span class="deliv">${o.deliveryDate ? fmtDate(o.deliveryDate) : 'Sans date'}</span>
+          <div class="card-actions">
+            <button class="act-edit" data-id="${o.id}" title="Modifier">✎</button>
+            <button class="act-del" data-id="${o.id}" title="Supprimer">🗑</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ---------- CALENDRIER TAB ----------
+  let prodDate = toISO(new Date());
+  function renderCalendrier(){
+    const root = document.getElementById('view-calendrier');
+    const days = [];
+    for(let i=0;i<7;i++){ const d=new Date(calWeekStart); d.setDate(d.getDate()+i); days.push(d); }
+    const todayISO = toISO(new Date());
+    const rangeLabel = days[0].toLocaleDateString('fr-FR',{day:'numeric',month:'long'}) + ' – ' + days[6].toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'});
+    const unscheduled = orders.filter(o => !o.deliveryDate);
+
+    const prodOrders = orders.filter(o => o.deliveryDate === prodDate);
+    const prodTotals = {};
+    prodOrders.forEach(o => (o.items||[]).forEach(it => {
+      const key = it.name.trim().toLowerCase();
+      if(!prodTotals[key]) prodTotals[key] = { name: it.name.trim(), qty: 0 };
+      prodTotals[key].qty += Number(it.qty)||0;
+    }));
+    const prodRows = Object.values(prodTotals).sort((a,b)=>b.qty-a.qty);
+
+    root.innerHTML = `
+      <div class="cal-toolbar">
+        <div class="cal-nav"><button id="prevWeek">‹</button><span class="cal-range">${rangeLabel}</span><button id="nextWeek">›</button></div>
+        <button class="btn-ghost" id="thisWeek">Cette semaine</button>
+      </div>
+      <div class="cal-grid">
+        ${days.map(d => {
+          const iso = toISO(d);
+          const dayOrders = orders.filter(o => o.deliveryDate === iso).sort((a,b)=>(a.clientName||'').localeCompare(b.clientName||''));
+          return `
+            <div class="cal-day ${iso===todayISO?'today':''}">
+              <div class="cal-day-head" data-date="${iso}" style="cursor:pointer;" title="Voir le total à produire ce jour"><span class="dname">${DAY_NAMES[(d.getDay()+6)%7]}</span><span class="dnum">${d.getDate()}</span></div>
+              ${dayOrders.length ? dayOrders.map(o => `
+                <div class="cal-order" data-id="${o.id}">
+                  <div class="cn">${escapeHtml(o.clientName)}</div>
+                  <div class="ci">${(o.items||[]).map(it=>`${it.qty}×${escapeHtml(it.name)}`).join(', ')}</div>
+                </div>
+              `).join('') : '<div class="cal-empty">—</div>'}
+            </div>
+          `;
+        }).join('')}
+      </div>
+
+      <div class="recap-client" style="margin-top:22px;">
+        <div class="recap-header" style="margin-bottom:10px;">
+          <h3 style="margin:0;">Total à produire</h3>
+          <input type="date" id="prodDateInput" value="${prodDate}" style="max-width:170px;">
+        </div>
+        <div class="n">${fmtDate(prodDate)} — ${prodOrders.length} commande${prodOrders.length>1?'s':''}</div>
+        ${prodRows.length === 0 ? `<div class="hint" style="margin-top:8px;">Aucune commande ce jour-là.</div>` : `
+          <table class="recap-table" style="margin-top:10px;">
+            ${prodRows.map(p => `<tr><td>${escapeHtml(p.name)}</td><td class="num">${p.qty}</td></tr>`).join('')}
+          </table>
+        `}
+      </div>
+
+      ${unscheduled.length ? `
+        <div class="unscheduled-box">
+          <p class="list-title" style="margin-bottom:10px;">Sans date de livraison (${unscheduled.length})</p>
+          ${unscheduled.map(o => orderCardHtml(o)).join('')}
+        </div>
+      ` : ''}
+    `;
+    document.getElementById('prevWeek').addEventListener('click', () => { calWeekStart.setDate(calWeekStart.getDate()-7); renderCalendrier(); });
+    document.getElementById('nextWeek').addEventListener('click', () => { calWeekStart.setDate(calWeekStart.getDate()+7); renderCalendrier(); });
+    document.getElementById('thisWeek').addEventListener('click', () => { calWeekStart = startOfWeek(new Date()); renderCalendrier(); });
+    document.getElementById('prodDateInput').addEventListener('input', e => { prodDate = e.target.value; renderCalendrier(); });
+    root.querySelectorAll('.cal-day-head').forEach(el => el.addEventListener('click', () => { prodDate = el.dataset.date; renderCalendrier(); document.querySelector('.recap-client').scrollIntoView({behavior:'smooth', block:'nearest'}); }));
+    root.querySelectorAll('.cal-order').forEach(el => el.addEventListener('click', e => { e.stopPropagation(); openOrderForEdit(el.dataset.id); }));
+    root.querySelectorAll('.act-edit').forEach(b => b.addEventListener('click', () => openOrderForEdit(b.dataset.id)));
+    root.querySelectorAll('.act-del').forEach(b => b.addEventListener('click', () => { askConfirm('Supprimer cette commande ?', () => deleteOrderDb(b.dataset.id)); }));
+  }
+
+  // ---------- RECAP TAB ----------
+  function renderRecap(){
+    const root = document.getElementById('view-recap');
+    const [y,m] = recapMonth.split('-').map(Number);
+    const monthLabel = new Date(y, m-1, 1).toLocaleDateString('fr-FR', { month:'long', year:'numeric' });
+    const inMonth = orders.filter(o => {
+      if(!o.deliveryDate) return false;
+      const [oy,om] = o.deliveryDate.split('-').map(Number);
+      return oy===y && om===m;
+    });
+    const byClient = {};
+    inMonth.forEach(o => {
+      const k = o.clientId || o.clientName;
+      if(!byClient[k]) byClient[k] = { name:o.clientName, count:0, products:{} };
+      byClient[k].count += 1;
+      (o.items||[]).forEach(it => {
+        const key = it.name.trim().toLowerCase();
+        if(!byClient[k].products[key]) byClient[k].products[key] = { name: it.name.trim(), qty: 0 };
+        byClient[k].products[key].qty += Number(it.qty)||0;
+      });
+    });
+    const clientRows = Object.values(byClient).sort((a,b)=>a.name.localeCompare(b.name));
+
+    root.innerHTML = `
+      <div class="recap-header">
+        <div class="cal-nav"><button id="prevMonth">‹</button><span class="cal-range">${monthLabel}</span><button id="nextMonth">›</button></div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn-ghost" id="thisMonth">Ce mois-ci</button>
+          <button class="btn-main small" id="exportCsv">Exporter en CSV</button>
+        </div>
+      </div>
+      <div class="hint" style="margin-bottom:14px;">Basé sur les dates de livraison de ${monthLabel} — ${inMonth.length} commande${inMonth.length>1?'s':''}.</div>
+      ${clientRows.length === 0 ? `<div class="empty"><span class="mark">🧾</span>Aucune commande ce mois-ci.</div>` : clientRows.map(c => `
+        <div class="recap-client">
+          <h3>${escapeHtml(c.name)}</h3>
+          <div class="n">${c.count} commande${c.count>1?'s':''}</div>
+          <table class="recap-table">
+            ${Object.values(c.products).sort((a,b)=>b.qty-a.qty).map(p => `<tr><td>${escapeHtml(p.name)}</td><td class="num">${p.qty}</td></tr>`).join('')}
+          </table>
+        </div>
+      `).join('')}
+    `;
+    document.getElementById('prevMonth').addEventListener('click', () => { shiftMonth(-1); renderRecap(); });
+    document.getElementById('nextMonth').addEventListener('click', () => { shiftMonth(1); renderRecap(); });
+    document.getElementById('thisMonth').addEventListener('click', () => { recapMonth = currentMonthStr(); renderRecap(); });
+    document.getElementById('exportCsv').addEventListener('click', () => exportRecapCsv(clientRows, monthLabel));
+  }
+  function shiftMonth(delta){
+    const [y,m] = recapMonth.split('-').map(Number);
+    const d = new Date(y, m-1+delta, 1);
+    recapMonth = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+  }
+  function exportRecapCsv(clientRows){
+    let csv = 'Client;Produit;Quantite totale\n';
+    clientRows.forEach(c => {
+      Object.values(c.products).sort((a,b)=>b.qty-a.qty).forEach(p => {
+        csv += `${c.name.replace(/;/g,',')};${p.name.replace(/;/g,',')};${p.qty}\n`;
+      });
+    });
+    const blob = new Blob(['\ufeff'+csv], {type:'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `recapitulatif-${recapMonth}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  // ---------- CLIENTS TAB ----------
+  let clientSearchQuery = '';
+  function renderClients(){
+    const root = document.getElementById('view-clients');
+    const needsImport = clients.length === 0;
+    root.innerHTML = `
+      <div class="top-actions">
+        <h2>Clients</h2>
+        ${canCreateClients() ? `<button class="btn-main small" id="newClientBtn">+ Nouveau client</button>` : ''}
+      </div>
+      ${IMPORT_CLIENTS.length && canCreateClients() ? `
+        <div class="import-box">
+          <span>Importer ta liste de ${IMPORT_CLIENTS.length} clients et leurs produits habituels (fichier Excel)</span>
+          <button class="btn-ghost" id="importBtn">Importer</button>
+        </div>
+      ` : ''}
+      <input type="text" id="clientListSearch" placeholder="Rechercher un client…" value="${escapeHtml(clientSearchQuery)}" style="max-width:260px;margin-bottom:16px;">
+      <div class="client-grid" id="clientGrid"></div>
+    `;
+    const newClientBtn = document.getElementById('newClientBtn');
+    if(newClientBtn) newClientBtn.addEventListener('click', () => openClientModal(null));
+    document.getElementById('clientListSearch').addEventListener('input', e => { clientSearchQuery = e.target.value; renderClientGrid(); });
+    const importBtn = document.getElementById('importBtn');
+    if(importBtn) importBtn.addEventListener('click', runImport);
+    renderClientGrid();
+  }
+  async function runImport(){
+    let created = 0, updated = 0;
+    for(const entry of IMPORT_CLIENTS){
+      const existing = clients.find(c => c.name.trim().toLowerCase() === entry.name.trim().toLowerCase());
+      if(existing){
+        const current = existing.products || [];
+        const merged = current.slice();
+        entry.products.forEach(p => { if(!merged.some(x=>x.toLowerCase()===p.toLowerCase())) merged.push(p); });
+        if(merged.length !== current.length){
+          await saveClient({ ...existing, products: merged });
+          updated++;
+        }
+      } else {
+        await saveClient({ name: entry.name, phone:'', email:'', address:'', notes:'', products: entry.products.slice() });
+        created++;
+      }
+    }
+    toast(`Import terminé : ${created} client(s) créé(s), ${updated} mis à jour.`);
+    renderClients();
+  }
+  function renderClientGrid(){
+    const box = document.getElementById('clientGrid');
+    const q = clientSearchQuery.trim().toLowerCase();
+    const list = clients.filter(c => !q || c.name.toLowerCase().includes(q)).sort((a,b)=>a.name.localeCompare(b.name));
+    if(list.length === 0){ box.innerHTML = `<div class="empty" style="grid-column:1/-1;"><span class="mark">👥</span>Aucun client enregistré.</div>`; return; }
+    box.innerHTML = list.map(c => {
+      const n = orders.filter(o => o.clientId === c.id).length;
+      const np = (c.products||[]).length;
+      return `
+        <div class="client-card" data-id="${c.id}">
+          <div class="name">${escapeHtml(c.name)}</div>
+          <div class="meta">${c.phone ? escapeHtml(c.phone)+'<br>' : ''}${c.email ? escapeHtml(c.email)+'<br>' : ''}${c.address ? escapeHtml(c.address) : ''}</div>
+          <span class="count">${n} commande${n>1?'s':''}</span> <span class="count">${np} produit${np>1?'s':''}</span>
+        </div>`;
+    }).join('');
+    box.querySelectorAll('.client-card').forEach(el => el.addEventListener('click', () => openClientModal(el.dataset.id)));
+  }
+  function openClientModal(id){
+    const c = id ? clients.find(x => x.id === id) : { name:'', phone:'', email:'', address:'', notes:'', products:[] };
+    const isNew = !id;
+    const clientOrders = id ? orders.filter(o => o.clientId === id) : [];
+    const modalRoot = document.getElementById('modalRoot');
+    modalRoot.innerHTML = `
+      <div class="modal-bg" id="modalBg"><div class="modal">
+        <h3>${isNew ? 'Nouveau client' : escapeHtml(c.name)}</h3>
+        <label>Nom</label>
+        <input type="text" id="mName" value="${escapeHtml(c.name)}">
+        <div class="field-row">
+          <div><label>Téléphone</label><input type="tel" id="mPhone" value="${escapeHtml(c.phone||'')}"></div>
+          <div><label>Email</label><input type="email" id="mEmail" value="${escapeHtml(c.email||'')}"></div>
+        </div>
+        <label>Adresse</label>
+        <input type="text" id="mAddress" value="${escapeHtml(c.address||'')}">
+        <label>Notes</label>
+        <textarea id="mNotes">${escapeHtml(c.notes||'')}</textarea>
+        <label>Produits habituels</label>
+        <div class="product-tags" id="productTags"></div>
+        <div class="add-product-row">
+          <input type="text" id="newProductName" placeholder="Ajouter un produit…">
+          <button class="btn-ghost" id="addProductBtn" type="button">Ajouter</button>
+        </div>
+        ${!isNew && clientOrders.length ? `
+          <label>Historique (${clientOrders.length})</label>
+          <div class="hint">${clientOrders.slice(0,5).map(o => `${fmtDate(o.deliveryDate)} — ${(o.items||[]).map(it=>it.qty+'×'+escapeHtml(it.name)).join(', ')}`).join('<br>')}</div>
+        ` : ''}
+        <div class="modal-actions">
+          <button class="btn-main" id="mSave">Enregistrer</button>
+          <button class="btn-ghost" id="mCancel">Annuler</button>
+          ${!isNew ? '<button class="btn-ghost" id="mDelete" style="color:var(--jam);border-color:var(--jam-soft);">Supprimer</button>' : ''}
+        </div>
+      </div></div>
+    `;
+    let productList = (c.products||[]).slice();
+    function renderTags(){
+      document.getElementById('productTags').innerHTML = productList.map((p,i) => `<span class="product-tag">${escapeHtml(p)}<button data-i="${i}">✕</button></span>`).join('') || '<span class="hint">Aucun produit enregistré.</span>';
+      document.getElementById('productTags').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { productList.splice(Number(b.dataset.i),1); renderTags(); }));
+    }
+    renderTags();
+    document.getElementById('addProductBtn').addEventListener('click', () => {
+      const input = document.getElementById('newProductName');
+      const v = input.value.trim();
+      if(v && !productList.some(p=>p.toLowerCase()===v.toLowerCase())){ productList.push(v); renderTags(); }
+      input.value = ''; input.focus();
+    });
+    document.getElementById('newProductName').addEventListener('keydown', e => { if(e.key==='Enter'){ e.preventDefault(); document.getElementById('addProductBtn').click(); } });
+    document.getElementById('mCancel').addEventListener('click', closeModal);
+    document.getElementById('modalBg').addEventListener('click', e => { if(e.target.id==='modalBg') closeModal(); });
+    document.getElementById('mSave').addEventListener('click', async () => {
+      const name = document.getElementById('mName').value.trim();
+      if(!name){ toast('Le nom est obligatoire.'); return; }
+      await saveClient({ id: isNew ? null : id, name, phone: document.getElementById('mPhone').value.trim(), email: document.getElementById('mEmail').value.trim(), address: document.getElementById('mAddress').value.trim(), notes: document.getElementById('mNotes').value.trim(), products: productList });
+      closeModal(); renderClients();
+    });
+    if(!isNew){
+      document.getElementById('mDelete').addEventListener('click', async () => {
+        if(clientOrders.length){ toast("Ce client a des commandes enregistrées ; supprime-les d'abord."); return; }
+        askConfirm('Supprimer ce client ?', async () => { await deleteClientDb(id); closeModal(); renderClients(); });
+      });
+    }
+  }
+  function closeModal(){ document.getElementById('modalRoot').innerHTML = ''; }
+
+  // ---------- nav ----------
+  document.querySelector('nav.tabs').addEventListener('click', e => { const b=e.target.closest('button'); if(!b) return; currentTab=b.dataset.tab; render(); });
+  document.getElementById('fab').addEventListener('click', () => { mobileFormOpen = true; renderCommandes(); window.scrollTo({top:0, behavior:'smooth'}); });
+
+  initDb();
+})();
+</script>
+</body>
+</html>
