@@ -174,6 +174,20 @@
   .unscheduled-box { margin-top: 18px; }
 
   .recap-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+
+  #printArea { display: none; }
+  @media print {
+    body * { visibility: hidden; }
+    #printArea, #printArea * { visibility: visible; }
+    #printArea { display: block; position: absolute; top: 0; left: 0; width: 100%; padding: 20px; color: #000; background: #fff; }
+    #printArea h1 { font-family: 'Fraunces', serif; font-size: 20px; margin: 0 0 4px; }
+    #printArea p { margin: 0 0 16px; color: #444; }
+    #printArea .p-order { padding: 10px 0; border-bottom: 1px solid #ccc; break-inside: avoid; }
+    #printArea .p-client { font-weight: 700; font-size: 14px; }
+    #printArea .p-meta { font-size: 12px; color: #444; }
+    #printArea .p-items { font-size: 13px; margin-top: 2px; }
+    #printArea .p-notes { font-size: 12px; font-style: italic; color: #444; margin-top: 2px; }
+  }
   .recap-client { background: var(--flour); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 14px; }
   .recap-client h3 { font-family: 'Fraunces', serif; font-size: 16px; margin: 0 0 4px; }
   .recap-client .n { font-size: 12px; color: var(--ink-soft); margin-bottom: 10px; }
@@ -420,7 +434,7 @@
         const name = document.getElementById('newName').value.trim();
         const code = document.getElementById('newCode').value.trim();
         if(!name){ toast('Indique ton prénom.'); return; }
-        const e = await saveEmployee({ name, code, canViewRecap: true, canCreateClients: true });
+        const e = await saveEmployee({ name, code, canViewRecap: true, canCreateClients: true, canManageEmployees: true });
         currentEmployee = e; rememberEmployee(e.id);
         showApp();
       });
@@ -433,36 +447,11 @@
         <div class="employee-grid" id="empGrid">
           ${employees.map(e => `<button class="employee-btn" data-id="${e.id}"><div class="avatar2">${initials(e.name)}</div>${escapeHtml(e.name)}</button>`).join('')}
         </div>
-        <button class="btn-ghost" id="addEmpBtn" style="width:100%;">+ Ajouter un profil</button>
+        <div class="hint" style="margin-top:6px;">Pas encore de profil ? Demande à un gérant de te l'ajouter.</div>
       </div></div>`;
     document.getElementById('empGrid').addEventListener('click', e => {
       const b = e.target.closest('.employee-btn'); if(!b) return;
       promptCode(employees.find(x=>x.id===b.dataset.id));
-    });
-    document.getElementById('addEmpBtn').addEventListener('click', renderAddProfile);
-  }
-  function renderAddProfile(){
-    document.getElementById('loginRoot').innerHTML = `
-      <div class="login-screen"><div class="login-box">
-        <div class="mark">🥖</div>
-        <h1>Nouveau profil</h1>
-        <label style="text-align:left;">Prénom</label>
-        <input type="text" id="newName" placeholder="Ex: Camille">
-        <label style="text-align:left;">Code personnel (4 chiffres)</label>
-        <input type="password" id="newCode" inputmode="numeric" maxlength="6" placeholder="••••">
-        <div class="modal-actions">
-          <button class="btn-main" id="createOne">Créer et entrer</button>
-          <button class="btn-ghost" id="backLogin">Retour</button>
-        </div>
-      </div></div>`;
-    document.getElementById('backLogin').addEventListener('click', showLogin);
-    document.getElementById('createOne').addEventListener('click', async () => {
-      const name = document.getElementById('newName').value.trim();
-      const code = document.getElementById('newCode').value.trim();
-      if(!name){ toast('Indique un prénom.'); return; }
-      const e = await saveEmployee({ name, code, canViewRecap: false, canCreateClients: false });
-      currentEmployee = e; rememberEmployee(e.id);
-      showApp();
     });
   }
   function promptCode(emp){
@@ -500,41 +489,60 @@
   function renderSettingsIfOpen(){ if(settingsOpen) renderSettings(); }
   function renderSettings(){
     const modalRoot = document.getElementById('modalRoot');
+    const canManage = !!currentEmployee && currentEmployee.canManageEmployees !== false;
     modalRoot.innerHTML = `
       <div class="modal-bg" id="setBg"><div class="modal">
         <h3>Salariés &amp; accès</h3>
-        <div class="hint" style="margin-bottom:12px;">Chaque salarié ouvre l'appli avec son prénom + son code personnel. Tu choisis pour chacun s'il a accès au récapitulatif et/ou à la création de nouveaux clients.</div>
-        <div id="empList"></div>
-        <label>Ajouter un salarié</label>
-        <input type="text" id="setName" placeholder="Prénom">
-        <input type="password" id="setCode" inputmode="numeric" maxlength="6" placeholder="Code (4 chiffres)" style="margin-top:6px;">
-        <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-weight:500;">
-          <input type="checkbox" id="setRecap" style="width:auto;"> Accès au récapitulatif
-        </label>
-        <label style="display:flex;align-items:center;gap:8px;margin-top:6px;font-weight:500;">
-          <input type="checkbox" id="setCreateClients" style="width:auto;"> Accès à la création de clients
-        </label>
-        <button class="btn-main" id="setAdd">Ajouter</button>
+        ${canManage ? `
+          <div class="hint" style="margin-bottom:12px;">Chaque salarié ouvre l'appli avec son prénom + son code personnel. Tu choisis pour chacun ses accès.</div>
+          <div id="empList"></div>
+          <label>Ajouter un salarié</label>
+          <input type="text" id="setName" placeholder="Prénom">
+          <input type="password" id="setCode" inputmode="numeric" maxlength="6" placeholder="Code (4 chiffres)" style="margin-top:6px;">
+          <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-weight:500;">
+            <input type="checkbox" id="setRecap" style="width:auto;"> Accès au récapitulatif
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;margin-top:6px;font-weight:500;">
+            <input type="checkbox" id="setCreateClients" style="width:auto;"> Accès à la création de clients
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;margin-top:6px;font-weight:500;">
+            <input type="checkbox" id="setManageEmp" style="width:auto;"> Peut gérer les salariés (créer/supprimer des comptes)
+          </label>
+          <button class="btn-main" id="setAdd">Ajouter</button>
+        ` : `
+          <div class="hint" style="margin-bottom:12px;">Seul un gérant peut créer ou modifier des comptes salariés. Demande à ${escapeHtml((employees.find(e=>e.canManageEmployees!==false)||{}).name || 'un gérant')} si tu as besoin d'un changement.</div>
+        `}
         <label style="margin-top:20px;">Sauvegarde</label>
         <div class="hint" style="margin-bottom:8px;">Télécharge une copie complète de tes clients, produits et commandes — à garder de ton côté, indépendamment de l'appli.</div>
         <button class="btn-ghost" id="exportBackup" style="width:100%;">⬇ Exporter toutes les données (JSON)</button>
         <div class="modal-actions"><button class="btn-ghost" id="setClose" style="width:100%;">Fermer</button></div>
       </div></div>`;
+    if(!canManage){
+      document.getElementById('setClose').addEventListener('click', () => { settingsOpen = false; modalRoot.innerHTML=''; });
+      document.getElementById('exportBackup').addEventListener('click', exportFullBackup);
+      document.getElementById('setBg').addEventListener('click', e => { if(e.target.id==='setBg'){ settingsOpen=false; modalRoot.innerHTML=''; } });
+      return;
+    }
     const list = document.getElementById('empList');
     list.innerHTML = employees.map(e => {
       const recap = e.canViewRecap !== false;
       const createCl = e.canCreateClients !== false;
+      const manageEmp = e.canManageEmployees !== false;
       return `<div class="client-chip" style="margin-bottom:6px;flex-wrap:wrap;">
         <span>${escapeHtml(e.name)}</span>
         <span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
           <button data-id="${e.id}" class="toggleRecap" style="font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid var(--border);cursor:pointer;font-family:inherit;background:${recap?'var(--sage-soft)':'var(--flour)'};color:${recap?'var(--sage)':'var(--ink-soft)'};">Récap : ${recap?'oui':'non'}</button>
           <button data-id="${e.id}" class="toggleCreate" style="font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid var(--border);cursor:pointer;font-family:inherit;background:${createCl?'var(--sage-soft)':'var(--flour)'};color:${createCl?'var(--sage)':'var(--ink-soft)'};">Clients : ${createCl?'oui':'non'}</button>
+          <button data-id="${e.id}" class="toggleManage" style="font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid var(--border);cursor:pointer;font-family:inherit;background:${manageEmp?'var(--sage-soft)':'var(--flour)'};color:${manageEmp?'var(--sage)':'var(--ink-soft)'};">Gérant : ${manageEmp?'oui':'non'}</button>
           <button data-id="${e.id}" class="rmEmp">supprimer</button>
         </span>
       </div>`;
     }).join('') || '<div class="hint">Aucun salarié.</div>';
     list.querySelectorAll('.rmEmp').forEach(b => b.addEventListener('click', async () => {
       if(employees.length<=1){ toast('Il doit rester au moins un profil.'); return; }
+      const emp = employees.find(x => x.id === b.dataset.id);
+      const managers = employees.filter(x => x.canManageEmployees !== false);
+      if(managers.length<=1 && managers[0].id===emp.id){ toast('Il doit rester au moins un gérant.'); return; }
       askConfirm('Supprimer ce profil ?', async () => { await deleteEmployeeDb(b.dataset.id); });
     }));
     list.querySelectorAll('.toggleRecap').forEach(b => b.addEventListener('click', async () => {
@@ -547,13 +555,21 @@
       await saveEmployee({ ...emp, canCreateClients: !(emp.canCreateClients !== false) });
       renderSettings();
     }));
+    list.querySelectorAll('.toggleManage').forEach(b => b.addEventListener('click', async () => {
+      const emp = employees.find(x => x.id === b.dataset.id);
+      const managers = employees.filter(x => x.canManageEmployees !== false);
+      if(managers.length<=1 && managers[0].id===emp.id){ toast('Il doit rester au moins un gérant.'); return; }
+      await saveEmployee({ ...emp, canManageEmployees: !(emp.canManageEmployees !== false) });
+      renderSettings();
+    }));
     document.getElementById('setAdd').addEventListener('click', async () => {
       const name = document.getElementById('setName').value.trim();
       const code = document.getElementById('setCode').value.trim();
       const recapChecked = document.getElementById('setRecap').checked;
       const createChecked = document.getElementById('setCreateClients').checked;
+      const manageChecked = document.getElementById('setManageEmp').checked;
       if(!name){ toast('Indique un prénom.'); return; }
-      await saveEmployee({ name, code, canViewRecap: recapChecked, canCreateClients: createChecked });
+      await saveEmployee({ name, code, canViewRecap: recapChecked, canCreateClients: createChecked, canManageEmployees: manageChecked });
       renderSettings();
     });
     document.getElementById('setClose').addEventListener('click', () => { settingsOpen = false; modalRoot.innerHTML=''; });
@@ -831,6 +847,22 @@
         `}
       </div>
 
+      <div class="recap-client" style="margin-top:14px;">
+        <div class="recap-header" style="margin-bottom:10px;">
+          <h3 style="margin:0;">Liste des livraisons</h3>
+          <button class="btn-main small" id="printDeliveries">🖨️ Imprimer / Export PDF</button>
+        </div>
+        <div class="n">${fmtDate(prodDate)} — par client</div>
+        ${prodOrders.length === 0 ? `<div class="hint" style="margin-top:8px;">Aucune livraison ce jour-là.</div>` : prodOrders.slice().sort((a,b)=>(a.clientName||'').localeCompare(b.clientName||'')).map(o => {
+          const cl = clients.find(c => c.id === o.clientId);
+          return `<div style="padding:8px 0;border-bottom:1px solid var(--border);">
+            <strong>${escapeHtml(o.clientName)}</strong>${cl && (cl.phone||cl.address) ? ` <span class="hint" style="display:inline;">— ${escapeHtml([cl.phone,cl.address].filter(Boolean).join(' · '))}</span>` : ''}
+            <div class="hint" style="margin-top:2px;">${(o.items||[]).map(it=>`${it.qty}×${escapeHtml(it.name)}`).join(', ')}</div>
+            ${o.notes ? `<div class="hint" style="font-style:italic;">${escapeHtml(o.notes)}</div>` : ''}
+          </div>`;
+        }).join('')}
+      </div>
+
       ${unscheduled.length ? `
         <div class="unscheduled-box">
           <p class="list-title" style="margin-bottom:10px;">Sans date de livraison (${unscheduled.length})</p>
@@ -838,6 +870,7 @@
         </div>
       ` : ''}
     `;
+    document.getElementById('printDeliveries').addEventListener('click', () => printDeliveries(prodDate, prodOrders));
     document.getElementById('prevWeek').addEventListener('click', () => { calWeekStart.setDate(calWeekStart.getDate()-7); renderCalendrier(); });
     document.getElementById('nextWeek').addEventListener('click', () => { calWeekStart.setDate(calWeekStart.getDate()+7); renderCalendrier(); });
     document.getElementById('thisWeek').addEventListener('click', () => { calWeekStart = startOfWeek(new Date()); renderCalendrier(); });
@@ -846,6 +879,26 @@
     root.querySelectorAll('.cal-order').forEach(el => el.addEventListener('click', e => { e.stopPropagation(); openOrderForEdit(el.dataset.id); }));
     root.querySelectorAll('.act-edit').forEach(b => b.addEventListener('click', () => openOrderForEdit(b.dataset.id)));
     root.querySelectorAll('.act-del').forEach(b => b.addEventListener('click', () => { askConfirm('Supprimer cette commande ?', () => deleteOrderDb(b.dataset.id)); }));
+  }
+
+  function printDeliveries(date, dayOrders){
+    let box = document.getElementById('printArea');
+    if(!box){ box = document.createElement('div'); box.id = 'printArea'; document.body.appendChild(box); }
+    const sorted = dayOrders.slice().sort((a,b)=>(a.clientName||'').localeCompare(b.clientName||''));
+    box.innerHTML = `
+      <h1>Livraisons — ${fmtDate(date)}</h1>
+      <p>${sorted.length} commande${sorted.length>1?'s':''}</p>
+      ${sorted.map(o => {
+        const cl = clients.find(c => c.id === o.clientId);
+        return `<div class="p-order">
+          <div class="p-client">${escapeHtml(o.clientName)}</div>
+          ${cl && (cl.phone||cl.address) ? `<div class="p-meta">${escapeHtml([cl.phone,cl.address].filter(Boolean).join(' · '))}</div>` : ''}
+          <div class="p-items">${(o.items||[]).map(it=>`${it.qty} × ${escapeHtml(it.name)}`).join(', ')}</div>
+          ${o.notes ? `<div class="p-notes">${escapeHtml(o.notes)}</div>` : ''}
+        </div>`;
+      }).join('')}
+    `;
+    window.print();
   }
 
   // ---------- RECAP TAB ----------
