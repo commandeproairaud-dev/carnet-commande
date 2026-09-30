@@ -275,6 +275,7 @@
   let recapMonth = currentMonthStr();
 
   function uid(){ return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
+  function orderItemsSummary(o){ return (o.items||[]).map(it => `${it.qty}×${it.name}`).join(', ') || 'aucun article'; }
   function fmtDate(d){
     if(!d) return 'Sans date';
     const dt = new Date(d + 'T00:00:00');
@@ -395,14 +396,14 @@
     const isNew = !o.id;
     if(db){ if(!o.id) o.id = uid(); await db.collection('orders').doc(o.id).set(o); }
     else { if(!o.id){ o.id = uid(); orders.push(o); } else { const i=orders.findIndex(x=>x.id===o.id); orders[i]=o; } renderCurrentView(); }
-    logAction(isNew ? 'Commande créée' : 'Commande modifiée', `${o.clientName} — ${fmtDate(o.deliveryDate)}`);
+    logAction(isNew ? 'Commande créée' : 'Commande modifiée', `${o.clientName} — ${fmtDate(o.deliveryDate)} — ${orderItemsSummary(o)}`);
     return o;
   }
   async function deleteOrderDb(id){
     const o = orders.find(x => x.id === id);
     if(db){ await db.collection('orders').doc(id).delete(); }
     else { orders = orders.filter(o=>o.id!==id); renderCurrentView(); }
-    logAction('Commande supprimée', o ? `${o.clientName} — ${fmtDate(o.deliveryDate)}` : id);
+    logAction('Commande supprimée', o ? `${o.clientName} — ${fmtDate(o.deliveryDate)} — ${orderItemsSummary(o)}` : id);
   }
   async function saveEmployee(e){
     const isNew = !e.id;
@@ -610,17 +611,20 @@
       <div class="modal-bg" id="histBg"><div class="modal" style="max-width:480px;">
         <h3>Historique des actions</h3>
         <div class="hint" style="margin-bottom:10px;">Les 150 dernières actions, les plus récentes en premier.</div>
+        <select id="histFilter" style="margin-bottom:10px;"><option value="">Tous les salariés</option></select>
         <div id="histList"><div class="hint">Chargement…</div></div>
         <div class="modal-actions"><button class="btn-ghost" id="histClose" style="width:100%;">Fermer</button></div>
       </div></div>`;
     document.getElementById('histClose').addEventListener('click', () => { modalRoot.innerHTML=''; });
     document.getElementById('histBg').addEventListener('click', e => { if(e.target.id==='histBg') modalRoot.innerHTML=''; });
     if(!db) return;
-    db.collection('activityLog').orderBy('ts','desc').limit(150).get().then(snap => {
+    let allRows = [];
+    function paint(){
       const list = document.getElementById('histList');
-      if(!list) return; // modal fermée entre-temps
-      const rows = snap.docs.map(d => d.data());
-      if(rows.length === 0){ list.innerHTML = '<div class="hint">Aucune action enregistrée pour l\'instant.</div>'; return; }
+      if(!list) return;
+      const filter = document.getElementById('histFilter').value;
+      const rows = filter ? allRows.filter(r => r.employee === filter) : allRows;
+      if(rows.length === 0){ list.innerHTML = '<div class="hint">Aucune action pour ce filtre.</div>'; return; }
       list.innerHTML = `<div style="max-height:50vh;overflow-y:auto;">${rows.map(r => {
         const d = new Date(r.ts);
         const when = d.toLocaleDateString('fr-FR', {day:'numeric',month:'short'}) + ' à ' + d.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'});
@@ -628,6 +632,17 @@
           <span style="color:var(--ink-soft);">${when}</span> — <strong>${escapeHtml(r.employee||'?')}</strong> : ${escapeHtml(r.action||'')}${r.details ? ` <span style="color:var(--ink-soft);">(${escapeHtml(r.details)})</span>` : ''}
         </div>`;
       }).join('')}</div>`;
+    }
+    db.collection('activityLog').orderBy('ts','desc').limit(150).get().then(snap => {
+      const list = document.getElementById('histList');
+      if(!list) return; // modal fermée entre-temps
+      allRows = snap.docs.map(d => d.data());
+      if(allRows.length === 0){ list.innerHTML = '<div class="hint">Aucune action enregistrée pour l\'instant.</div>'; return; }
+      const names = [...new Set(allRows.map(r => r.employee).filter(Boolean))].sort();
+      const sel = document.getElementById('histFilter');
+      if(sel) names.forEach(n => sel.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`));
+      if(sel) sel.addEventListener('change', paint);
+      paint();
     }).catch(() => {
       const list = document.getElementById('histList');
       if(list) list.innerHTML = '<div class="hint">Impossible de charger l\'historique.</div>';
@@ -881,7 +896,7 @@
       <div class="cal-grid">
         ${days.map(d => {
           const iso = toISO(d);
-          const dayOrders = orders.filter(o => o.deliveryDate === iso).sort((a,b)=>(a.clientName||'').localeCompare(b.clientName||''));
+          const dayOrders = orders.filter(o => o.deliveryDate === iso).sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
           return `
             <div class="cal-day ${iso===todayISO?'today':''}">
               <div class="cal-day-head" data-date="${iso}" style="cursor:pointer;" title="Voir le total à produire ce jour"><span class="dname">${DAY_NAMES[(d.getDay()+6)%7]}</span><span class="dnum">${d.getDate()}</span></div>
@@ -890,6 +905,7 @@
                   <button class="cal-del" data-id="${o.id}" title="Supprimer" style="position:absolute;top:4px;right:5px;background:none;border:none;color:var(--jam);font-size:12px;cursor:pointer;padding:2px;line-height:1;">✕</button>
                   <div class="cn" style="padding-right:14px;">${escapeHtml(o.clientName)}</div>
                   <div class="ci">${(o.items||[]).map(it=>`${it.qty}×${escapeHtml(it.name)}`).join(', ')}</div>
+                  ${o.notes ? `<div class="ci" style="font-style:italic;opacity:0.85;">${escapeHtml(o.notes)}</div>` : ''}
                 </div>
               `).join('') : '<div class="cal-empty">—</div>'}
             </div>
