@@ -368,32 +368,54 @@
   }
 
   // ---------- CRUD ----------
+  function logAction(action, details){
+    if(!db) return;
+    try {
+      db.collection('activityLog').add({
+        ts: Date.now(),
+        employee: currentEmployee ? currentEmployee.name : '?',
+        action, details
+      });
+    } catch(e) {}
+  }
   async function saveClient(c){
+    const isNew = !c.id;
     if(db){ if(!c.id) c.id = uid(); await db.collection('clients').doc(c.id).set(c); }
     else { if(!c.id){ c.id = uid(); clients.push(c); } else { const i=clients.findIndex(x=>x.id===c.id); clients[i]=c; } renderCurrentView(); }
+    logAction(isNew ? 'Client créé' : 'Client modifié', c.name);
     return c;
   }
   async function deleteClientDb(id){
+    const c = clients.find(x => x.id === id);
     if(db){ await db.collection('clients').doc(id).delete(); }
     else { clients = clients.filter(c=>c.id!==id); renderCurrentView(); }
+    logAction('Client supprimé', c ? c.name : id);
   }
   async function saveOrder(o){
+    const isNew = !o.id;
     if(db){ if(!o.id) o.id = uid(); await db.collection('orders').doc(o.id).set(o); }
     else { if(!o.id){ o.id = uid(); orders.push(o); } else { const i=orders.findIndex(x=>x.id===o.id); orders[i]=o; } renderCurrentView(); }
+    logAction(isNew ? 'Commande créée' : 'Commande modifiée', `${o.clientName} — ${fmtDate(o.deliveryDate)}`);
     return o;
   }
   async function deleteOrderDb(id){
+    const o = orders.find(x => x.id === id);
     if(db){ await db.collection('orders').doc(id).delete(); }
     else { orders = orders.filter(o=>o.id!==id); renderCurrentView(); }
+    logAction('Commande supprimée', o ? `${o.clientName} — ${fmtDate(o.deliveryDate)}` : id);
   }
   async function saveEmployee(e){
+    const isNew = !e.id;
     if(db){ if(!e.id) e.id = uid(); await db.collection('employees').doc(e.id).set(e); }
     else { if(!e.id){ e.id=uid(); employees.push(e);} else { const i=employees.findIndex(x=>x.id===e.id); employees[i]=e;} }
+    logAction(isNew ? 'Salarié créé' : 'Droits salarié modifiés', e.name);
     return e;
   }
   async function deleteEmployeeDb(id){
+    const e = employees.find(x => x.id === id);
     if(db){ await db.collection('employees').doc(id).delete(); }
     else { employees = employees.filter(e=>e.id!==id); }
+    logAction('Salarié supprimé', e ? e.name : id);
   }
 
   function renderCurrentView(){
@@ -515,6 +537,11 @@
         <label style="margin-top:20px;">Sauvegarde</label>
         <div class="hint" style="margin-bottom:8px;">Télécharge une copie complète de tes clients, produits et commandes — à garder de ton côté, indépendamment de l'appli.</div>
         <button class="btn-ghost" id="exportBackup" style="width:100%;">⬇ Exporter toutes les données (JSON)</button>
+        ${canManage ? `
+          <label style="margin-top:20px;">Historique</label>
+          <div class="hint" style="margin-bottom:8px;">Qui a créé, modifié ou supprimé quoi dans l'appli.</div>
+          <button class="btn-ghost" id="openHistory" style="width:100%;">📋 Voir l'historique des actions</button>
+        ` : ''}
         <div class="modal-actions"><button class="btn-ghost" id="setClose" style="width:100%;">Fermer</button></div>
       </div></div>`;
     if(!canManage){
@@ -574,7 +601,37 @@
     });
     document.getElementById('setClose').addEventListener('click', () => { settingsOpen = false; modalRoot.innerHTML=''; });
     document.getElementById('exportBackup').addEventListener('click', exportFullBackup);
+    document.getElementById('openHistory').addEventListener('click', renderHistory);
     document.getElementById('setBg').addEventListener('click', e => { if(e.target.id==='setBg'){ settingsOpen=false; modalRoot.innerHTML=''; } });
+  }
+  function renderHistory(){
+    const modalRoot = document.getElementById('modalRoot');
+    modalRoot.innerHTML = `
+      <div class="modal-bg" id="histBg"><div class="modal" style="max-width:480px;">
+        <h3>Historique des actions</h3>
+        <div class="hint" style="margin-bottom:10px;">Les 150 dernières actions, les plus récentes en premier.</div>
+        <div id="histList"><div class="hint">Chargement…</div></div>
+        <div class="modal-actions"><button class="btn-ghost" id="histClose" style="width:100%;">Fermer</button></div>
+      </div></div>`;
+    document.getElementById('histClose').addEventListener('click', () => { modalRoot.innerHTML=''; });
+    document.getElementById('histBg').addEventListener('click', e => { if(e.target.id==='histBg') modalRoot.innerHTML=''; });
+    if(!db) return;
+    db.collection('activityLog').orderBy('ts','desc').limit(150).get().then(snap => {
+      const list = document.getElementById('histList');
+      if(!list) return; // modal fermée entre-temps
+      const rows = snap.docs.map(d => d.data());
+      if(rows.length === 0){ list.innerHTML = '<div class="hint">Aucune action enregistrée pour l\'instant.</div>'; return; }
+      list.innerHTML = `<div style="max-height:50vh;overflow-y:auto;">${rows.map(r => {
+        const d = new Date(r.ts);
+        const when = d.toLocaleDateString('fr-FR', {day:'numeric',month:'short'}) + ' à ' + d.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'});
+        return `<div style="padding:7px 0;border-bottom:1px solid var(--border);font-size:13px;">
+          <span style="color:var(--ink-soft);">${when}</span> — <strong>${escapeHtml(r.employee||'?')}</strong> : ${escapeHtml(r.action||'')}${r.details ? ` <span style="color:var(--ink-soft);">(${escapeHtml(r.details)})</span>` : ''}
+        </div>`;
+      }).join('')}</div>`;
+    }).catch(() => {
+      const list = document.getElementById('histList');
+      if(list) list.innerHTML = '<div class="hint">Impossible de charger l\'historique.</div>';
+    });
   }
   function exportFullBackup(){
     const data = {
@@ -684,7 +741,12 @@
 
   function wireForm(){
     const cs = document.getElementById('clientSearch');
-    if(cs){ cs.addEventListener('input', e => { clientQuery = e.target.value; renderClientResults(); }); cs.addEventListener('focus', renderClientResults); renderClientResults(); }
+    if(cs){
+      cs.addEventListener('input', e => { clientQuery = e.target.value; renderClientResults(); });
+      cs.addEventListener('focus', renderClientResults);
+      cs.addEventListener('blur', () => { setTimeout(() => { const box = document.getElementById('clientResults'); if(box) box.innerHTML=''; }, 150); });
+      if(document.activeElement === cs) renderClientResults();
+    }
     const clearBtn = document.getElementById('clearClient');
     if(clearBtn) clearBtn.addEventListener('click', () => { draft.clientId=null; draft.clientName=''; clientQuery=''; refreshForm(); });
     document.getElementById('quickAdd').addEventListener('click', e => {
@@ -824,8 +886,9 @@
             <div class="cal-day ${iso===todayISO?'today':''}">
               <div class="cal-day-head" data-date="${iso}" style="cursor:pointer;" title="Voir le total à produire ce jour"><span class="dname">${DAY_NAMES[(d.getDay()+6)%7]}</span><span class="dnum">${d.getDate()}</span></div>
               ${dayOrders.length ? dayOrders.map(o => `
-                <div class="cal-order" data-id="${o.id}">
-                  <div class="cn">${escapeHtml(o.clientName)}</div>
+                <div class="cal-order" data-id="${o.id}" style="position:relative;">
+                  <button class="cal-del" data-id="${o.id}" title="Supprimer" style="position:absolute;top:4px;right:5px;background:none;border:none;color:var(--jam);font-size:12px;cursor:pointer;padding:2px;line-height:1;">✕</button>
+                  <div class="cn" style="padding-right:14px;">${escapeHtml(o.clientName)}</div>
                   <div class="ci">${(o.items||[]).map(it=>`${it.qty}×${escapeHtml(it.name)}`).join(', ')}</div>
                 </div>
               `).join('') : '<div class="cal-empty">—</div>'}
@@ -877,6 +940,10 @@
     document.getElementById('prodDateInput').addEventListener('input', e => { prodDate = e.target.value; renderCalendrier(); });
     root.querySelectorAll('.cal-day-head').forEach(el => el.addEventListener('click', () => { prodDate = el.dataset.date; renderCalendrier(); document.querySelector('.recap-client').scrollIntoView({behavior:'smooth', block:'nearest'}); }));
     root.querySelectorAll('.cal-order').forEach(el => el.addEventListener('click', e => { e.stopPropagation(); openOrderForEdit(el.dataset.id); }));
+    root.querySelectorAll('.cal-del').forEach(b => b.addEventListener('click', e => {
+      e.stopPropagation();
+      askConfirm('Supprimer cette commande ?', () => deleteOrderDb(b.dataset.id));
+    }));
     root.querySelectorAll('.act-edit').forEach(b => b.addEventListener('click', () => openOrderForEdit(b.dataset.id)));
     root.querySelectorAll('.act-del').forEach(b => b.addEventListener('click', () => { askConfirm('Supprimer cette commande ?', () => deleteOrderDb(b.dataset.id)); }));
   }
