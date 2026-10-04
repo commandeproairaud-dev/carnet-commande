@@ -271,6 +271,11 @@
   let draft = { clientId: null, clientName: '', items: [], deliveryDate: '', notes: '' };
   let clientQuery = '';
   let mobileFormOpen = false;
+  let draftDates = [];          // jours choisis pour une commande multi-jours
+  let multiDayOpen = false;     // mode « plusieurs jours » ouvert dans le formulaire
+  let mdFrom = '', mdTo = '';   // période du générateur de jours
+  let mdWeekdays = [true,true,true,true,true,true,true]; // lundi → dimanche
+  let lastCommitAt = 0;         // anti double-clic
   let calWeekStart = startOfWeek(new Date());
   let recapMonth = currentMonthStr();
 
@@ -317,6 +322,20 @@
     holder.addEventListener('click', e => { if(e.target === holder) cleanup(); });
     holder.querySelector('#ccCancel').addEventListener('click', cleanup);
     holder.querySelector('#ccOk').addEventListener('click', () => { cleanup(); onYes(); });
+  }
+  function askChoice(innerHtml, buttons){
+    const holder = document.createElement('div');
+    holder.className = 'modal-bg confirm-modal';
+    holder.innerHTML = `<div class="modal" style="max-width:380px;text-align:left;">
+      <div style="font-size:14px;">${innerHtml}</div>
+      <div class="modal-actions" style="flex-direction:column;">${buttons.map((b,i) => `<button class="${b.cls||'btn-ghost'}" data-i="${i}" style="flex:none;width:100%;margin-top:0;">${escapeHtml(b.label)}</button>`).join('')}</div>
+    </div>`;
+    document.body.appendChild(holder);
+    function close(){ holder.remove(); }
+    holder.addEventListener('click', e => { if(e.target === holder) close(); });
+    holder.querySelectorAll('button[data-i]').forEach(btn => btn.addEventListener('click', () => {
+      const b = buttons[Number(btn.dataset.i)]; close(); if(b.onClick) b.onClick();
+    }));
   }
 
   // ---------- local device convenience ----------
@@ -369,15 +388,33 @@
   }
 
   // ---------- CRUD ----------
-  function logAction(action, details){
+  function logAction(action, details, extra){
     if(!db) return;
     try {
-      db.collection('activityLog').add({
+      const entry = Object.assign({
         ts: Date.now(),
         employee: currentEmployee ? currentEmployee.name : '?',
-        action, details
-      });
+        action, details: details || ''
+      }, extra || {});
+      db.collection('activityLog').add(JSON.parse(JSON.stringify(entry)));
     } catch(e) {}
+  }
+  function orderFullSummary(o){
+    return `${o.clientName} — ${fmtDate(o.deliveryDate)} — ${orderItemsSummary(o)}${o.notes ? ' — note : ' + o.notes : ''}`;
+  }
+  function orderDiffHtml(a, b){
+    const rows = [];
+    const ia = orderItemsSummary(a), ib = orderItemsSummary(b);
+    if(ia !== ib) rows.push(['Produits', ia, ib]);
+    if((a.deliveryDate||'') !== (b.deliveryDate||'')) rows.push(['Date', fmtDate(a.deliveryDate), fmtDate(b.deliveryDate)]);
+    if((a.notes||'') !== (b.notes||'')) rows.push(['Note', a.notes || '(aucune)', b.notes || '(aucune)']);
+    if(!rows.length) return '<div class="hint">Aucun changement par rapport à la commande actuelle.</div>';
+    return rows.map(([k,x,y]) => `<div style="margin-top:8px;font-size:13px;line-height:1.45;"><strong>${k}</strong><br><span style="color:var(--ink-soft);">avant : ${escapeHtml(x)}</span><br>après : <strong>${escapeHtml(y)}</strong></div>`).join('');
+  }
+  function orderSnapshot(o){
+    return { id:o.id, clientId:o.clientId, clientName:o.clientName,
+      items:(o.items||[]).map(it => ({ name:it.name, qty:it.qty })),
+      deliveryDate:o.deliveryDate||'', notes:o.notes||'', createdAt:o.createdAt||0, createdBy:o.createdBy||'' };
   }
   async function saveClient(c){
     const isNew = !c.id;
@@ -392,18 +429,21 @@
     else { clients = clients.filter(c=>c.id!==id); renderCurrentView(); }
     logAction('Client supprimé', c ? c.name : id);
   }
-  async function saveOrder(o){
-    const isNew = !o.id;
+  async function saveOrder(o, prev, label){
     if(db){ if(!o.id) o.id = uid(); await db.collection('orders').doc(o.id).set(o); }
-    else { if(!o.id){ o.id = uid(); orders.push(o); } else { const i=orders.findIndex(x=>x.id===o.id); orders[i]=o; } renderCurrentView(); }
-    logAction(isNew ? 'Commande créée' : 'Commande modifiée', `${o.clientName} — ${fmtDate(o.deliveryDate)} — ${orderItemsSummary(o)}`);
+    else { if(!o.id){ o.id = uid(); orders.push(o); } else { const i=orders.findIndex(x=>x.id===o.id); if(i>=0) orders[i]=o; else orders.push(o); } renderCurrentView(); }
+    if(prev){
+      logAction(label || 'Commande modifiée', '', { before: orderFullSummary(prev), after: orderFullSummary(o), snapshot: orderSnapshot(prev) });
+    } else {
+      logAction(label || 'Commande créée', orderFullSummary(o));
+    }
     return o;
   }
   async function deleteOrderDb(id){
     const o = orders.find(x => x.id === id);
     if(db){ await db.collection('orders').doc(id).delete(); }
     else { orders = orders.filter(o=>o.id!==id); renderCurrentView(); }
-    logAction('Commande supprimée', o ? `${o.clientName} — ${fmtDate(o.deliveryDate)} — ${orderItemsSummary(o)}` : id);
+    logAction('Commande supprimée', o ? orderFullSummary(o) : id, o ? { snapshot: orderSnapshot(o) } : {});
   }
   async function saveEmployee(e){
     const isNew = !e.id;
@@ -503,7 +543,7 @@
     const box = document.getElementById('whoami');
     if(!currentEmployee){ box.innerHTML=''; return; }
     box.innerHTML = `<span class="avatar">${initials(currentEmployee.name)}</span> ${escapeHtml(currentEmployee.name)} <button id="switchUserBtn">changer</button>`;
-    document.getElementById('switchUserBtn').addEventListener('click', () => { currentEmployee = null; forgetEmployee(); showLogin(); });
+    document.getElementById('switchUserBtn').addEventListener('click', () => { resetDraft(); mobileFormOpen = false; currentEmployee = null; forgetEmployee(); showLogin(); });
   }
 
   // ---------- settings ----------
@@ -530,6 +570,9 @@
           </label>
           <label style="display:flex;align-items:center;gap:8px;margin-top:6px;font-weight:500;">
             <input type="checkbox" id="setManageEmp" style="width:auto;"> Peut gérer les salariés (créer/supprimer des comptes)
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;margin-top:6px;font-weight:500;">
+            <input type="checkbox" id="setMulti" style="width:auto;"> Peut saisir une commande sur plusieurs jours
           </label>
           <button class="btn-main" id="setAdd">Ajouter</button>
         ` : `
@@ -562,6 +605,7 @@
           <button data-id="${e.id}" class="toggleRecap" style="font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid var(--border);cursor:pointer;font-family:inherit;background:${recap?'var(--sage-soft)':'var(--flour)'};color:${recap?'var(--sage)':'var(--ink-soft)'};">Récap : ${recap?'oui':'non'}</button>
           <button data-id="${e.id}" class="toggleCreate" style="font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid var(--border);cursor:pointer;font-family:inherit;background:${createCl?'var(--sage-soft)':'var(--flour)'};color:${createCl?'var(--sage)':'var(--ink-soft)'};">Clients : ${createCl?'oui':'non'}</button>
           <button data-id="${e.id}" class="toggleManage" style="font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid var(--border);cursor:pointer;font-family:inherit;background:${manageEmp?'var(--sage-soft)':'var(--flour)'};color:${manageEmp?'var(--sage)':'var(--ink-soft)'};">Gérant : ${manageEmp?'oui':'non'}</button>
+          <button data-id="${e.id}" class="toggleMulti" style="font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid var(--border);cursor:pointer;font-family:inherit;background:${e.canMultiDay===true?'var(--sage-soft)':'var(--flour)'};color:${e.canMultiDay===true?'var(--sage)':'var(--ink-soft)'};">Multi-jours : ${e.canMultiDay===true?'oui':'non'}</button>
           <button data-id="${e.id}" class="rmEmp">supprimer</button>
         </span>
       </div>`;
@@ -590,14 +634,20 @@
       await saveEmployee({ ...emp, canManageEmployees: !(emp.canManageEmployees !== false) });
       renderSettings();
     }));
+    list.querySelectorAll('.toggleMulti').forEach(b => b.addEventListener('click', async () => {
+      const emp = employees.find(x => x.id === b.dataset.id);
+      await saveEmployee({ ...emp, canMultiDay: !(emp.canMultiDay === true) });
+      renderSettings();
+    }));
     document.getElementById('setAdd').addEventListener('click', async () => {
       const name = document.getElementById('setName').value.trim();
       const code = document.getElementById('setCode').value.trim();
       const recapChecked = document.getElementById('setRecap').checked;
       const createChecked = document.getElementById('setCreateClients').checked;
       const manageChecked = document.getElementById('setManageEmp').checked;
+      const multiChecked = document.getElementById('setMulti').checked;
       if(!name){ toast('Indique un prénom.'); return; }
-      await saveEmployee({ name, code, canViewRecap: recapChecked, canCreateClients: createChecked, canManageEmployees: manageChecked });
+      await saveEmployee({ name, code, canViewRecap: recapChecked, canCreateClients: createChecked, canManageEmployees: manageChecked, canMultiDay: multiChecked });
       renderSettings();
     });
     document.getElementById('setClose').addEventListener('click', () => { settingsOpen = false; modalRoot.innerHTML=''; });
@@ -610,7 +660,7 @@
     modalRoot.innerHTML = `
       <div class="modal-bg" id="histBg"><div class="modal" style="max-width:480px;">
         <h3>Historique des actions</h3>
-        <div class="hint" style="margin-bottom:10px;">Les 150 dernières actions, les plus récentes en premier.</div>
+        <div class="hint" style="margin-bottom:10px;">Les 300 dernières actions, les plus récentes en premier. Une commande modifiée ou supprimée peut être restaurée.</div>
         <select id="histFilter" style="margin-bottom:10px;"><option value="">Tous les salariés</option></select>
         <div id="histList"><div class="hint">Chargement…</div></div>
         <div class="modal-actions"><button class="btn-ghost" id="histClose" style="width:100%;">Fermer</button></div>
@@ -625,15 +675,20 @@
       const filter = document.getElementById('histFilter').value;
       const rows = filter ? allRows.filter(r => r.employee === filter) : allRows;
       if(rows.length === 0){ list.innerHTML = '<div class="hint">Aucune action pour ce filtre.</div>'; return; }
-      list.innerHTML = `<div style="max-height:50vh;overflow-y:auto;">${rows.map(r => {
+      list.innerHTML = `<div style="max-height:50vh;overflow-y:auto;">${rows.map((r,i) => {
         const d = new Date(r.ts);
         const when = d.toLocaleDateString('fr-FR', {day:'numeric',month:'short'}) + ' à ' + d.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'});
-        return `<div style="padding:7px 0;border-bottom:1px solid var(--border);font-size:13px;">
-          <span style="color:var(--ink-soft);">${when}</span> — <strong>${escapeHtml(r.employee||'?')}</strong> : ${escapeHtml(r.action||'')}${r.details ? ` <span style="color:var(--ink-soft);">(${escapeHtml(r.details)})</span>` : ''}
+        const detail = r.before
+          ? `<div class="hint" style="margin-top:3px;">Avant : ${escapeHtml(r.before)}</div><div class="hint">Après : ${escapeHtml(r.after||'')}</div>`
+          : (r.details ? `<div class="hint" style="margin-top:3px;">${escapeHtml(r.details)}</div>` : '');
+        const restore = r.snapshot ? `<button class="btn-ghost histRestore" data-i="${i}" style="margin-top:5px;font-size:12px;padding:4px 10px;">↩ Restaurer l'état d'avant</button>` : '';
+        return `<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;">
+          <span style="color:var(--ink-soft);">${when}</span> — <strong>${escapeHtml(r.employee||'?')}</strong> : ${escapeHtml(r.action||'')}${detail}${restore}
         </div>`;
       }).join('')}</div>`;
+      list.querySelectorAll('.histRestore').forEach(b => b.addEventListener('click', () => restoreFromLog(rows[Number(b.dataset.i)])));
     }
-    db.collection('activityLog').orderBy('ts','desc').limit(150).get().then(snap => {
+    db.collection('activityLog').orderBy('ts','desc').limit(300).get().then(snap => {
       const list = document.getElementById('histList');
       if(!list) return; // modal fermée entre-temps
       allRows = snap.docs.map(d => d.data());
@@ -647,6 +702,19 @@
       const list = document.getElementById('histList');
       if(list) list.innerHTML = '<div class="hint">Impossible de charger l\'historique.</div>';
     });
+  }
+  function restoreFromLog(r){
+    const s = r && r.snapshot; if(!s) return;
+    const current = orders.find(o => o.id === s.id) || null;
+    const msg = current
+      ? `Remettre cette commande dans l'état d'avant ? Elle sera remplacée par : ${orderFullSummary(s)}`
+      : `Recréer cette commande : ${orderFullSummary(s)} ?`;
+    askConfirm(msg, async () => {
+      const o = Object.assign({}, s, { updatedBy: currentEmployee ? currentEmployee.name : '', updatedAt: Date.now() });
+      await saveOrder(o, current, 'Commande restaurée');
+      toast('Commande restaurée.');
+      setTimeout(renderHistory, 700);
+    }, 'Restaurer');
   }
   function exportFullBackup(){
     const data = {
@@ -667,6 +735,7 @@
   // ---------- render root ----------
   function canViewRecap(){ return !!currentEmployee && currentEmployee.canViewRecap !== false; }
   function canCreateClients(){ return !!currentEmployee && currentEmployee.canCreateClients !== false; }
+  function canMultiDay(){ return !!currentEmployee && currentEmployee.canMultiDay === true; }
   function render(){
     if(currentTab==='recap' && !canViewRecap()) currentTab = 'commandes';
     document.getElementById('view-commandes').style.display = currentTab==='commandes' ? '' : 'none';
@@ -717,11 +786,19 @@
 
   function formHtml(){
     const prods = clientProducts();
+    const editing = editingOrderId ? orders.find(o => o.id === editingOrderId) : null;
+    const banner = editingOrderId ? `
+      <div style="background:#FCEAC9;border:1px solid var(--wheat);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:13px;color:#5a3d06;line-height:1.45;">
+        ✎ <strong>Tu modifies une commande existante</strong>${editing ? ` : ${escapeHtml(editing.clientName)}, ${escapeHtml(fmtDate(editing.deliveryDate))}` : ''}.<br>
+        Le client ne peut pas être changé ici : pour un autre client, crée une <strong>nouvelle</strong> commande (annule d'abord la modification).
+        <button class="btn-ghost" id="cancelEditTop" type="button" style="margin-top:8px;width:100%;background:#fff;color:#5a3d06;">Annuler la modification</button>
+      </div>` : '';
     return `
+      ${banner}
       <label>Client</label>
       <div class="client-pick">
         ${draft.clientId ? `
-          <div class="client-chip"><span>${escapeHtml(draft.clientName)}</span><button id="clearClient" type="button">changer</button></div>
+          <div class="client-chip"><span>${escapeHtml(draft.clientName)}</span>${editingOrderId ? '<span class="hint" style="margin:0;">🔒 non modifiable</span>' : '<button id="clearClient" type="button">changer</button>'}</div>
         ` : `
           <input type="text" id="clientSearch" placeholder="Rechercher ou créer un client…" value="${escapeHtml(clientQuery)}" autocomplete="off">
           <div class="client-results" id="clientResults"></div>
@@ -745,15 +822,54 @@
           </div>
         `).join('') || '<div class="hint">Aucun article ajouté</div>'}
       </div>
-      <label>Date de livraison souhaitée</label>
-      <input type="date" id="deliveryDate" value="${draft.deliveryDate}">
+      <label>${multiDayOpen && canMultiDay() && !editingOrderId ? 'Jours de livraison' : 'Date de livraison souhaitée'}</label>
+      ${multiDayOpen && canMultiDay() && !editingOrderId ? multiDayHtml() : `<input type="date" id="deliveryDate" value="${draft.deliveryDate}">`}
+      ${canMultiDay() && !editingOrderId ? `<button type="button" class="btn-ghost" id="toggleMulti" style="margin-top:8px;font-size:12.5px;padding:5px 10px;">${multiDayOpen ? '− Une seule date' : '＋ Plusieurs jours'}</button>` : ''}
       <label>Notes</label>
       <textarea id="orderNotes" placeholder="Précisions, horaire, allergies…">${escapeHtml(draft.notes)}</textarea>
-      <button class="btn-main" id="submitOrder">${editingOrderId ? 'Mettre à jour' : 'Enregistrer la commande'}</button>
+      <button class="btn-main" id="submitOrder">${editingOrderId ? 'Mettre à jour' : (multiDayOpen && canMultiDay() ? (draftDates.length ? `Enregistrer sur ${draftDates.length} jour${draftDates.length>1?'s':''}` : 'Enregistrer sur plusieurs jours') : 'Enregistrer la commande')}</button>
       ${editingOrderId ? `<button class="btn-ghost" id="cancelEdit" style="width:100%;margin-top:8px;">Annuler la modification</button>` : ''}
     `;
   }
 
+  function shortDay(iso){
+    return new Date(iso + 'T00:00:00').toLocaleDateString('fr-FR', { weekday:'short', day:'numeric', month:'short' });
+  }
+  function multiDayHtml(){
+    const names = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+    return `
+      <div style="background:var(--flour);border:1px solid var(--border);border-radius:8px;padding:10px;">
+        <div class="hint" style="margin:0 0 8px;">Une commande identique sera créée pour chaque jour choisi.</div>
+        <div style="display:flex;gap:6px;">
+          <input type="date" id="mdOne"><button type="button" class="btn-ghost" id="mdAddOne">Ajouter</button>
+        </div>
+        <div class="hint" style="margin:12px 0 4px;">Ou une période :</div>
+        <div style="display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 8px;align-items:center;">
+          <span class="hint" style="margin:0;">Du</span><input type="date" id="mdFrom" value="${mdFrom}">
+          <span class="hint" style="margin:0;">au</span><input type="date" id="mdTo" value="${mdTo}">
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
+          ${names.map((n,i) => `<label style="display:flex;align-items:center;gap:3px;margin:0;font-size:12.5px;font-weight:500;"><input type="checkbox" class="mdWd" data-i="${i}" ${mdWeekdays[i]?'checked':''} style="width:auto;">${n}</label>`).join('')}
+        </div>
+        <button type="button" class="btn-ghost" id="mdAddRange" style="margin-top:8px;">Ajouter ces jours</button>
+        <div class="product-tags" style="margin-top:10px;">
+          ${draftDates.length ? draftDates.map(d => `<span class="product-tag">${escapeHtml(shortDay(d))}<button type="button" class="mdChipDel" data-d="${d}">✕</button></span>`).join('') : '<span class="hint">Aucun jour choisi pour l\'instant.</span>'}
+        </div>
+      </div>`;
+  }
+  function addDraftDates(list){
+    const merged = [...new Set(draftDates.concat(list))].sort();
+    if(merged.length > 62){ toast('Maximum 62 jours à la fois.'); return; }
+    draftDates = merged; refreshForm();
+  }
+  function rangeDates(from, to, weekdays){
+    const out = []; if(!from || !to) return out;
+    const d = new Date(from + 'T00:00:00'), end = new Date(to + 'T00:00:00');
+    for(let i = 0; d <= end && i < 400; i++, d.setDate(d.getDate() + 1)){
+      if(weekdays[(d.getDay() + 6) % 7]) out.push(toISO(d));
+    }
+    return out;
+  }
   function wireForm(){
     const cs = document.getElementById('clientSearch');
     if(cs){
@@ -778,9 +894,34 @@
       if(e.target.classList.contains('it-name')) draft.items[idx].name = e.target.value;
       if(e.target.classList.contains('it-qty')) draft.items[idx].qty = e.target.value;
     });
-    document.getElementById('deliveryDate').addEventListener('input', e => draft.deliveryDate = e.target.value);
+    const dd = document.getElementById('deliveryDate');
+    if(dd) dd.addEventListener('input', e => draft.deliveryDate = e.target.value);
+    const tm = document.getElementById('toggleMulti');
+    if(tm) tm.addEventListener('click', () => { multiDayOpen = !multiDayOpen; refreshForm(); });
+    const mdAddOne = document.getElementById('mdAddOne');
+    if(mdAddOne) mdAddOne.addEventListener('click', () => {
+      const v = document.getElementById('mdOne').value;
+      if(!v){ toast('Choisis une date.'); return; }
+      addDraftDates([v]);
+    });
+    const mdFromEl = document.getElementById('mdFrom'), mdToEl = document.getElementById('mdTo');
+    if(mdFromEl) mdFromEl.addEventListener('input', e => { mdFrom = e.target.value; });
+    if(mdToEl) mdToEl.addEventListener('input', e => { mdTo = e.target.value; });
+    document.querySelectorAll('.mdWd').forEach(cb => cb.addEventListener('change', e => { mdWeekdays[Number(cb.dataset.i)] = cb.checked; }));
+    const mdAddRange = document.getElementById('mdAddRange');
+    if(mdAddRange) mdAddRange.addEventListener('click', () => {
+      if(!mdFrom || !mdTo){ toast('Indique le début et la fin de la période.'); return; }
+      if(mdTo < mdFrom){ toast('La fin doit être après le début.'); return; }
+      if(!mdWeekdays.some(Boolean)){ toast('Coche au moins un jour de la semaine.'); return; }
+      const days = rangeDates(mdFrom, mdTo, mdWeekdays);
+      if(days.length === 0){ toast('Aucun jour dans cette période.'); return; }
+      addDraftDates(days);
+    });
+    document.querySelectorAll('.mdChipDel').forEach(b => b.addEventListener('click', () => { draftDates = draftDates.filter(d => d !== b.dataset.d); refreshForm(); }));
     document.getElementById('orderNotes').addEventListener('input', e => draft.notes = e.target.value);
     document.getElementById('submitOrder').addEventListener('click', submitOrder);
+    const cancelTop = document.getElementById('cancelEditTop');
+    if(cancelTop) cancelTop.addEventListener('click', () => { resetDraft(); mobileFormOpen = false; renderCommandes(); });
     const cancelBtn = document.getElementById('cancelEdit');
     if(cancelBtn) cancelBtn.addEventListener('click', () => { resetDraft(); renderCommandes(); });
   }
@@ -811,12 +952,34 @@
       draft.clientId = c.id; draft.clientName = c.name; clientQuery=''; refreshForm();
     });
   }
-  function resetDraft(){ editingOrderId = null; draft = { clientId:null, clientName:'', items:[], deliveryDate:'', notes:'' }; clientQuery=''; }
+  function resetDraft(){ editingOrderId = null; draft = { clientId:null, clientName:'', items:[], deliveryDate:'', notes:'' }; clientQuery=''; draftDates = []; multiDayOpen = false; mdFrom = ''; mdTo = ''; }
+  function backupDraft(){ return { editingOrderId, draft: JSON.parse(JSON.stringify(draft)), draftDates: draftDates.slice(), multiDayOpen }; }
+  function restoreDraft(b){ editingOrderId = b.editingOrderId; draft = b.draft; draftDates = b.draftDates; multiDayOpen = b.multiDayOpen; mobileFormOpen = true; renderCommandes(); }
   async function submitOrder(){
+    if(Date.now() - lastCommitAt < 1500) return;   // anti double-clic
     if(!draft.clientId){ toast('Choisis ou crée un client pour cette commande.'); return; }
     const items = draft.items.map(it => ({ name:(it.name||'').trim(), qty:Number(it.qty)||0 })).filter(it => it.name);
     if(items.length === 0){ toast('Ajoute au moins un article.'); return; }
     const prev = editingOrderId ? orders.find(o=>o.id===editingOrderId) : null;
+    if(prev && draft.clientId !== prev.clientId){ toast("Le client d'une commande existante ne peut pas être changé."); return; }
+
+    // --- commande sur plusieurs jours (droit réservé) ---
+    if(canMultiDay() && multiDayOpen && !editingOrderId){
+      if(draftDates.length === 0){ toast('Ajoute au moins un jour.'); return; }
+      const dates = draftDates.slice(), n = dates.length;
+      askChoice(
+        `<p style="margin:0 0 10px;"><strong>Créer ${n} commande${n>1?'s':''}</strong> pour ${escapeHtml(draft.clientName)} ?</p>
+         <div class="hint">Jours : ${dates.map(d => escapeHtml(shortDay(d))).join(', ')}</div>
+         <div class="hint" style="margin-top:4px;">Produits : ${escapeHtml(items.map(it => `${it.qty}×${it.name}`).join(', '))}</div>
+         ${draft.notes.trim() ? `<div class="hint" style="margin-top:4px;">Note : ${escapeHtml(draft.notes.trim())}</div>` : ''}`,
+        [
+          { label: n>1 ? `Créer les ${n} commandes` : 'Créer la commande', cls:'btn-main', onClick: () => commitMultiDay(items, dates) },
+          { label:'Revenir au formulaire' }
+        ]
+      );
+      return;
+    }
+
     const order = {
       id: editingOrderId,
       clientId: draft.clientId, clientName: draft.clientName, items,
@@ -826,8 +989,68 @@
       updatedBy: currentEmployee ? currentEmployee.name : '',
       updatedAt: Date.now(),
     };
-    await saveOrder(order);
+    if(!editingOrderId){ commitOrder(order, null); return; }
+    if(!prev){ order.id = null; order.createdAt = Date.now(); order.createdBy = currentEmployee ? currentEmployee.name : ''; commitOrder(order, null); return; }
+    askChoice(
+      `<p style="margin:0 0 4px;"><strong>${escapeHtml(prev.clientName)}</strong> : cette commande existe déjà.</p>
+       <div class="hint" style="margin:0;">Voici ce qui change :</div>${orderDiffHtml(prev, order)}
+       <p style="margin:12px 0 0;">Que veux-tu faire ?</p>`,
+      [
+        { label:"Remplacer l'ancienne commande", cls:'btn-main', onClick: () => commitOrder(order, prev) },
+        { label:"Créer une nouvelle commande (garder l'ancienne)", cls:'btn-ghost', onClick: () => commitOrder(Object.assign({}, order, { id:null, createdAt:Date.now(), createdBy: currentEmployee ? currentEmployee.name : '' }), null) },
+        { label:'Revenir au formulaire' }
+      ]
+    );
+  }
+  // Le formulaire est vidé tout de suite (avant la fin de l'écriture en base) :
+  // un second clic ne peut donc plus recréer la même commande.
+  async function commitOrder(order, prev){
+    lastCommitAt = Date.now();
+    const backup = backupDraft();
     resetDraft(); mobileFormOpen = false; renderCommandes();
+    window.scrollTo({ top:0, behavior:'smooth' });
+    toast('Enregistrement…');
+    try {
+      await saveOrder(order, prev);
+      toast('Commande enregistrée ✓');
+    } catch(e) {
+      restoreDraft(backup);
+      toast("L'enregistrement a échoué : vérifie la connexion et réessaie.");
+    }
+  }
+  async function commitMultiDay(items, dates){
+    lastCommitAt = Date.now();
+    const now = Date.now(), who = currentEmployee ? currentEmployee.name : '';
+    const list = dates.map((d, i) => ({
+      id: null, clientId: draft.clientId, clientName: draft.clientName,
+      items: items.map(it => ({ name: it.name, qty: it.qty })),
+      deliveryDate: d, notes: draft.notes.trim(),
+      createdAt: now + i, createdBy: who, updatedBy: who, updatedAt: now,
+    }));
+    const backup = backupDraft();
+    resetDraft(); mobileFormOpen = false; renderCommandes();
+    window.scrollTo({ top:0, behavior:'smooth' });
+    toast('Enregistrement…');
+    try {
+      await saveOrdersBatch(list);
+      toast(list.length > 1 ? `${list.length} commandes enregistrées ✓` : 'Commande enregistrée ✓');
+    } catch(e) {
+      restoreDraft(backup);
+      toast("L'enregistrement a échoué : vérifie la connexion et réessaie.");
+    }
+  }
+  async function saveOrdersBatch(list){
+    list.forEach(o => { if(!o.id) o.id = uid(); });
+    if(db){
+      const batch = db.batch();
+      list.forEach(o => batch.set(db.collection('orders').doc(o.id), o));
+      await batch.commit();
+    } else {
+      list.forEach(o => orders.push(o)); renderCurrentView();
+    }
+    const first = list[0];
+    logAction('Commandes créées sur plusieurs jours',
+      `${first.clientName} — ${list.length} jour${list.length>1?'s':''} : ${list.map(o => fmtDate(o.deliveryDate)).join(', ')} — ${orderItemsSummary(first)}${first.notes ? ' — note : ' + first.notes : ''}`);
   }
   function renderOrdersList(){
     const box = document.getElementById('ordersList');
@@ -843,9 +1066,40 @@
     box.querySelectorAll('.act-edit').forEach(b => b.addEventListener('click', () => openOrderForEdit(b.dataset.id)));
     box.querySelectorAll('.act-del').forEach(b => b.addEventListener('click', () => { askConfirm('Supprimer cette commande ?', () => deleteOrderDb(b.dataset.id)); }));
   }
+  function openOrderDetail(id){
+    const o = orders.find(x => x.id === id); if(!o) return;
+    const holder = document.createElement('div');
+    holder.className = 'modal-bg';
+    holder.innerHTML = `<div class="modal">
+      <h3>${escapeHtml(o.clientName)}</h3>
+      <div class="hint" style="margin:-8px 0 10px;text-transform:capitalize;">${escapeHtml(fmtDate(o.deliveryDate))}</div>
+      <div style="font-size:14px;line-height:1.7;">${(o.items||[]).map(it => `${escapeHtml(String(it.qty))} × ${escapeHtml(it.name)}`).join('<br>')}</div>
+      ${o.notes ? `<div style="margin-top:10px;font-style:italic;font-size:13px;">${escapeHtml(o.notes)}</div>` : ''}
+      ${o.createdBy ? `<div class="hint" style="margin-top:12px;">saisie par ${escapeHtml(o.createdBy)}${o.updatedBy && o.updatedBy!==o.createdBy ? ' · modifiée par '+escapeHtml(o.updatedBy) : ''}</div>` : ''}
+      <div class="modal-actions">
+        <button class="btn-main" id="odEdit">Modifier</button>
+        ${canMultiDay() ? '<button class="btn-ghost" id="odDup">⧉ Dupliquer sur d\'autres jours</button>' : ''}
+        <button class="btn-ghost" id="odClose" style="flex:1 1 100%;">Fermer</button>
+      </div>
+    </div>`;
+    document.body.appendChild(holder);
+    function close(){ holder.remove(); }
+    holder.addEventListener('click', e => { if(e.target === holder) close(); });
+    holder.querySelector('#odClose').addEventListener('click', close);
+    holder.querySelector('#odEdit').addEventListener('click', () => { close(); openOrderForEdit(id); });
+    const dup = holder.querySelector('#odDup');
+    if(dup) dup.addEventListener('click', () => { close(); duplicateOrder(id); });
+  }
+  function duplicateOrder(id){
+    const o = orders.find(x => x.id === id); if(!o) return;
+    resetDraft();
+    draft = { clientId:o.clientId, clientName:o.clientName, items:(o.items||[]).map(it=>({...it})), deliveryDate:'', notes:o.notes||'' };
+    multiDayOpen = true; currentTab = 'commandes'; mobileFormOpen = true; render();
+    window.scrollTo({ top:0, behavior:'smooth' });
+  }
   function openOrderForEdit(id){
     const o = orders.find(x => x.id === id);
-    editingOrderId = o.id;
+    editingOrderId = o.id; draftDates = []; multiDayOpen = false;
     draft = { clientId:o.clientId, clientName:o.clientName, items:o.items.map(it=>({...it})), deliveryDate:o.deliveryDate||'', notes:o.notes||'' };
     currentTab='commandes'; mobileFormOpen = true; render();
     window.scrollTo({top:0, behavior:'smooth'});
@@ -955,7 +1209,7 @@
     document.getElementById('thisWeek').addEventListener('click', () => { calWeekStart = startOfWeek(new Date()); renderCalendrier(); });
     document.getElementById('prodDateInput').addEventListener('input', e => { prodDate = e.target.value; renderCalendrier(); });
     root.querySelectorAll('.cal-day-head').forEach(el => el.addEventListener('click', () => { prodDate = el.dataset.date; renderCalendrier(); document.querySelector('.recap-client').scrollIntoView({behavior:'smooth', block:'nearest'}); }));
-    root.querySelectorAll('.cal-order').forEach(el => el.addEventListener('click', e => { e.stopPropagation(); openOrderForEdit(el.dataset.id); }));
+    root.querySelectorAll('.cal-order').forEach(el => el.addEventListener('click', e => { e.stopPropagation(); openOrderDetail(el.dataset.id); }));
     root.querySelectorAll('.cal-del').forEach(b => b.addEventListener('click', e => {
       e.stopPropagation();
       askConfirm('Supprimer cette commande ?', () => deleteOrderDb(b.dataset.id));
@@ -1180,7 +1434,7 @@
   function closeModal(){ document.getElementById('modalRoot').innerHTML = ''; }
 
   // ---------- nav ----------
-  document.querySelector('nav.tabs').addEventListener('click', e => { const b=e.target.closest('button'); if(!b) return; currentTab=b.dataset.tab; render(); });
+  document.querySelector('nav.tabs').addEventListener('click', e => { const b=e.target.closest('button'); if(!b) return; if(editingOrderId && b.dataset.tab !== currentTab){ resetDraft(); mobileFormOpen = false; } currentTab=b.dataset.tab; render(); });
   document.getElementById('fab').addEventListener('click', () => { mobileFormOpen = true; renderCommandes(); window.scrollTo({top:0, behavior:'smooth'}); });
 
   initDb();
