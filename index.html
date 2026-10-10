@@ -533,6 +533,22 @@
     logAction(isNew ? 'Client créé' : 'Client modifié', c.name);
     return c;
   }
+  async function mergeClients(from, to){
+    const moved = orders.filter(o => o.clientId === from.id).map(o => Object.assign({}, o, { clientId: to.id, clientName: to.name }));
+    const merged = Object.assign({}, to, { products: uniqueProducts((to.products||[]).concat(from.products||[])) });
+    if(db){
+      const batch = db.batch();
+      moved.forEach(o => batch.set(db.collection('orders').doc(o.id), JSON.parse(JSON.stringify(o))));
+      batch.set(db.collection('clients').doc(to.id), JSON.parse(JSON.stringify(merged)));
+      batch.delete(db.collection('clients').doc(from.id));
+      await batch.commit();
+    } else {
+      moved.forEach(o => { const i = orders.findIndex(x => x.id === o.id); orders[i] = o; });
+      const i = clients.findIndex(x => x.id === to.id); clients[i] = merged;
+      clients = clients.filter(x => x.id !== from.id); renderCurrentView();
+    }
+    logAction('Clients fusionnés', `${from.name} → ${to.name} (${moved.length} commande${moved.length>1?'s':''})`);
+  }
   async function deleteClientDb(id){
     const c = clients.find(x => x.id === id);
     if(db){ await db.collection('clients').doc(id).delete(); }
@@ -1087,12 +1103,36 @@
     wireForm();
     document.getElementById('closeForm').addEventListener('click', () => { mobileFormOpen = false; renderCommandes(); });
   }
+  function clientKey(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,''); }
+  function lev(a,b){
+    const m=a.length,n=b.length; if(!m) return n; if(!n) return m;
+    let prev=Array.from({length:n+1},(_,j)=>j);
+    for(let i=1;i<=m;i++){ const cur=[i]; for(let j=1;j<=n;j++) cur[j]=Math.min(prev[j]+1,cur[j-1]+1,prev[j-1]+(a[i-1]===b[j-1]?0:1)); prev=cur; }
+    return prev[n];
+  }
+  // clients proches d'un nom tapé (faute de frappe, accents…)
+  function similarClients(q){
+    const qk = clientKey(q); if(qk.length < 2) return [];
+    return clients.map(c => {
+      const ck = clientKey(c.name);
+      if(ck === qk) return { c, d:0 };
+      if(ck.includes(qk)) return { c, d:0.5 };
+      const toks = String(q).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/[^a-z0-9]+/).filter(t => t.length >= 2);
+      const cn = String(c.name).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+      if(toks.length > 1 && toks.every(t => cn.includes(t))) return { c, d:0.6 };
+      const tol = qk.length <= 4 ? 1 : Math.floor(qk.length/4)+1;
+      const dFull = lev(qk, ck);
+      const dPre = qk.length >= 3 ? lev(qk, ck.slice(0, qk.length)) : 99;
+      const d = Math.min(dFull, dPre + 0.25);
+      return d <= tol ? { c, d } : null;
+    }).filter(Boolean).sort((a,b) => a.d - b.d).map(x => x.c);
+  }
   function renderClientResults(){
     const box = document.getElementById('clientResults'); if(!box) return;
     const q = clientQuery.trim().toLowerCase();
-    const matches = q ? clients.filter(c => c.name.toLowerCase().includes(q)) : clients.slice(0,6);
+    const matches = q ? similarClients(q) : clients.slice(0,6);
     let html = matches.map(c => `<div data-id="${c.id}">${escapeHtml(c.name)}</div>`).join('');
-    if(q && !clients.some(c => c.name.toLowerCase() === q)){
+    if(q && !clients.some(c => clientKey(c.name) === clientKey(q))){
       html += canCreateClients()
         ? `<div data-new="1" style="color:var(--wheat-dark);font-weight:600;">+ Créer "${escapeHtml(clientQuery)}"</div>`
         : `<div class="hint" style="padding:8px 11px;">Client introuvable — demande à un gérant de l'ajouter.</div>`;
@@ -1105,8 +1145,18 @@
     const newEl = box.querySelector('div[data-new]');
     if(newEl) newEl.addEventListener('click', async () => {
       const name = clientQuery.trim();
-      const c = await saveClient({ name, phone:'', email:'', address:'', notes:'', products:[] });
-      draft.clientId = c.id; draft.clientName = c.name; clientQuery=''; refreshForm();
+      const sims = similarClients(name).slice(0,3);
+      const useBtns = sims.map(c => ({ label:`Choisir « ${c.name} » (client existant)`, cls:'btn-main', onClick: () => { draft.clientId = c.id; draft.clientName = c.name; clientQuery=''; refreshForm(); } }));
+      askChoice(
+        `<p style="margin:0 0 6px;"><strong>Créer un nouveau client « ${escapeHtml(name)} » ?</strong></p>
+         <div class="hint" style="margin:0;">${sims.length ? 'Attention : un client qui ressemble existe déjà. Est-ce une faute de frappe ?' : 'Ce client n\'existe pas encore dans la liste. Vérifie l\'orthographe avant de le créer.'}</div>`,
+        useBtns.concat([
+          { label:`Oui, créer « ${name} »`, cls: sims.length ? 'btn-ghost' : 'btn-main', onClick: async () => {
+            const c = await saveClient({ name, phone:'', email:'', address:'', notes:'', products:[] });
+            draft.clientId = c.id; draft.clientName = c.name; clientQuery=''; refreshForm();
+          } },
+          { label:'Non, je corrige ma saisie' }
+        ]));
     });
   }
   function resetDraft(){ editingOrderId = null; draft = { clientId:null, clientName:'', items:[], deliveryDate:'', notes:'' }; clientQuery=''; draftDates = []; multiDayOpen = false; mdFrom = ''; mdTo = ''; }
@@ -1571,6 +1621,7 @@
         <div class="modal-actions">
           <button class="btn-main" id="mSave">Enregistrer</button>
           <button class="btn-ghost" id="mCancel">Annuler</button>
+          ${!isNew && canCreateClients() ? '<button class="btn-ghost" id="mMerge">Fusionner avec un autre client</button>' : ''}
           ${!isNew ? '<button class="btn-ghost" id="mDelete" style="color:var(--jam);border-color:var(--jam-soft);">Supprimer</button>' : ''}
         </div>
       </div></div>
@@ -1597,6 +1648,20 @@
       await saveClient({ id: isNew ? null : id, name, phone: document.getElementById('mPhone').value.trim(), email: document.getElementById('mEmail').value.trim(), address: document.getElementById('mAddress').value.trim(), notes: document.getElementById('mNotes').value.trim(), tracking: ({yes:true,no:false})[document.getElementById('mTracking').value] ?? null, products: uniqueProducts(productList) });
       learnProducts(productList);
       closeModal(); renderClients();
+    });
+    const mMerge = document.getElementById('mMerge');
+    if(mMerge) mMerge.addEventListener('click', () => {
+      const me = clients.find(x => x.id === id); if(!me) return;
+      const others = clients.filter(x => x.id !== id).sort((a,b)=>a.name.localeCompare(b.name,'fr'));
+      let sel = null;
+      askChoice(`<p style="margin:0 0 8px;"><strong>${escapeHtml(me.name)}</strong> (client saisi par erreur ?) sera fusionné dans :</p>
+        <select id="mgTarget">${others.map(x => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join('')}</select>
+        <div class="hint" style="margin-top:8px;">Ses ${clientOrders.length} commande${clientOrders.length>1?'s':''} et ses produits habituels passent au client choisi, puis « ${escapeHtml(me.name)} » est supprimé.</div>`, [
+        { label:'Fusionner', cls:'btn-main', onClick: async () => {
+          const target = clients.find(x => x.id === sel.value); if(!target) return;
+          await mergeClients(me, target); closeModal(); renderClients(); toast('Clients fusionnés.');
+        } }, { label:'Annuler' }]);
+      sel = document.getElementById('mgTarget');
     });
     if(!isNew){
       document.getElementById('mDelete').addEventListener('click', async () => {
