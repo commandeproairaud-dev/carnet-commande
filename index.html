@@ -660,6 +660,19 @@
   let settingsOpen = false;
   document.getElementById('settingsBtn').addEventListener('click', () => { settingsOpen = true; renderSettings(); });
   function renderSettingsIfOpen(){ if(settingsOpen) renderSettings(); }
+  function wireChangeCode(){
+    const btn = document.getElementById('myCodeBtn'); if(!btn) return;
+    btn.addEventListener('click', async () => {
+      if(!currentEmployee){ return; }
+      const o = document.getElementById('myOldCode').value.trim(), n = document.getElementById('myNewCode').value.trim(), n2 = document.getElementById('myNewCode2').value.trim();
+      if((currentEmployee.code || '') !== o){ toast('Le code actuel est incorrect.'); return; }
+      if(!/^\d{4,6}$/.test(n)){ toast('Le nouveau code doit faire 4 à 6 chiffres.'); return; }
+      if(n !== n2){ toast('Les deux nouveaux codes sont différents.'); return; }
+      await saveEmployee({ ...currentEmployee, code: n });
+      logAction('Code modifié', 'Changement de son propre code');
+      toast('Code modifié.'); renderSettings();
+    });
+  }
   function renderSettings(){
     const modalRoot = document.getElementById('modalRoot');
     const canManage = !!currentEmployee && currentEmployee.canManageEmployees !== false;
@@ -688,6 +701,12 @@
         ` : `
           <div class="hint" style="margin-bottom:12px;">Seul un gérant peut créer ou modifier des comptes salariés. Demande à ${escapeHtml((employees.find(e=>e.canManageEmployees!==false)||{}).name || 'un gérant')} si tu as besoin d'un changement.</div>
         `}
+        <label style="margin-top:20px;">Mon code personnel</label>
+        <div class="hint" style="margin-bottom:8px;">Connecté : ${escapeHtml(currentEmployee ? currentEmployee.name : '')}. Change ton code d'accès (4 à 6 chiffres).</div>
+        <input type="password" id="myOldCode" inputmode="numeric" maxlength="6" placeholder="Code actuel" autocomplete="off">
+        <input type="password" id="myNewCode" inputmode="numeric" maxlength="6" placeholder="Nouveau code" autocomplete="off" style="margin-top:6px;">
+        <input type="password" id="myNewCode2" inputmode="numeric" maxlength="6" placeholder="Nouveau code (confirmer)" autocomplete="off" style="margin-top:6px;">
+        <button class="btn-ghost" id="myCodeBtn" style="width:100%;margin-top:8px;">🔑 Changer mon code</button>
         <label style="margin-top:20px;">Sauvegarde</label>
         <div class="hint" style="margin-bottom:8px;">Télécharge une copie complète de tes clients, produits et commandes — à garder de ton côté, indépendamment de l'appli.</div>
         <button class="btn-ghost" id="exportBackup" style="width:100%;">⬇ Exporter toutes les données (JSON)</button>
@@ -701,6 +720,7 @@
     if(!canManage){
       document.getElementById('setClose').addEventListener('click', () => { settingsOpen = false; modalRoot.innerHTML=''; });
       document.getElementById('exportBackup').addEventListener('click', exportFullBackup);
+      wireChangeCode();
       document.getElementById('setBg').addEventListener('click', e => { if(e.target.id==='setBg'){ settingsOpen=false; modalRoot.innerHTML=''; } });
       return;
     }
@@ -716,6 +736,7 @@
           <button data-id="${e.id}" class="toggleCreate" style="font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid var(--border);cursor:pointer;font-family:inherit;background:${createCl?'var(--sage-soft)':'var(--flour)'};color:${createCl?'var(--sage)':'var(--ink-soft)'};">Clients : ${createCl?'oui':'non'}</button>
           <button data-id="${e.id}" class="toggleManage" style="font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid var(--border);cursor:pointer;font-family:inherit;background:${manageEmp?'var(--sage-soft)':'var(--flour)'};color:${manageEmp?'var(--sage)':'var(--ink-soft)'};">Gérant : ${manageEmp?'oui':'non'}</button>
           <button data-id="${e.id}" class="toggleMulti" style="font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid var(--border);cursor:pointer;font-family:inherit;background:${e.canMultiDay===true?'var(--sage-soft)':'var(--flour)'};color:${e.canMultiDay===true?'var(--sage)':'var(--ink-soft)'};">Multi-jours : ${e.canMultiDay===true?'oui':'non'}</button>
+          <button data-id="${e.id}" class="resetCode" style="font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid var(--border);cursor:pointer;font-family:inherit;background:var(--flour);color:var(--ink-soft);">🔑 code</button>
           <button data-id="${e.id}" class="rmEmp">supprimer</button>
         </span>
       </div>`;
@@ -763,6 +784,20 @@
     document.getElementById('setClose').addEventListener('click', () => { settingsOpen = false; modalRoot.innerHTML=''; });
     document.getElementById('exportBackup').addEventListener('click', exportFullBackup);
     document.getElementById('openHistory').addEventListener('click', renderHistory);
+    wireChangeCode();
+    list.querySelectorAll('.resetCode').forEach(b => b.addEventListener('click', () => {
+      const emp = employees.find(x => x.id === b.dataset.id); if(!emp) return;
+      let inp = null;
+      askChoice(`<p style="margin:0 0 8px;">Nouveau code pour <strong>${escapeHtml(emp.name)}</strong> (4 à 6 chiffres) :</p><input type="text" id="rcNew" inputmode="numeric" maxlength="6" autocomplete="off">`, [
+        { label:'Enregistrer le code', cls:'btn-main', onClick: async () => {
+          const n = inp.value.trim();
+          if(!/^\d{4,6}$/.test(n)){ toast('Le code doit faire 4 à 6 chiffres.'); return; }
+          await saveEmployee({ ...emp, code: n });
+          logAction('Code modifié', `Code de ${emp.name} changé par un gérant`);
+          toast('Code de ' + emp.name + ' modifié.'); renderSettings();
+        } }, { label:'Annuler' }]);
+      inp = document.getElementById('rcNew'); inp.focus();
+    }));
     document.getElementById('setBg').addEventListener('click', e => { if(e.target.id==='setBg'){ settingsOpen=false; modalRoot.innerHTML=''; } });
   }
   function renderHistory(){
