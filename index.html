@@ -163,7 +163,17 @@
   .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; }
   @media (max-width: 900px) { .cal-grid { grid-template-columns: 1fr; } }
   .cal-day { background: var(--flour); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; min-height: 140px; }
-  .cal-day.today { border-color: var(--wheat); box-shadow: 0 0 0 1px var(--wheat) inset; }
+  .cal-day.today { background: #FFD9B8; border: 3px solid #E8590C; box-shadow: 0 4px 14px rgba(232,89,12,.45); }
+  .cal-day.today .cal-day-head .dname { background: #E8590C; color: #fff; padding: 2px 10px; border-radius: 12px; }
+  .cal-day.today .cal-day-head .dnum { color: #B13D00; font-weight: 800; font-size: 14px; }
+  .cal-day.today .cal-order { background: #fff; }
+  .today-tag { display:block; font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:#E8590C; margin:-4px 0 6px; }
+  .cal-flags { display:flex; flex-wrap:wrap; gap:4px 10px; margin-top:6px; padding-top:5px; border-top:1px dashed var(--border); }
+  .cal-flag { white-space:nowrap; display:flex; align-items:center; gap:4px; font-size:11.5px; cursor:pointer; user-select:none; color:var(--ink-soft); }
+  .cal-flag input { width:16px; height:16px; margin:0; cursor:pointer; accent-color:#4C7A4A; }
+  .cal-flag.on { color:#2f6b2c; font-weight:700; }
+  .cal-order.is-ready { border-left: 4px solid #4C7A4A; }
+  .cal-order.is-invoiced { background: #EEF6EC; }
   .cal-day-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
   .cal-day-head .dname { font-family: 'Fraunces', serif; font-weight: 600; font-size: 13.5px; text-transform: capitalize; }
   .cal-day-head .dnum { font-size: 12px; color: var(--ink-soft); }
@@ -280,6 +290,98 @@
   let recapMonth = currentMonthStr();
 
   function uid(){ return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
+
+  // ---------- harmonisation des produits ----------
+  let prodSettings = { names: [], aliases: {} };   // doc Firestore settings/products
+  let catCache = null;
+  const SYN_WORDS = { choc:'chocolat', pp:'petit pain', baguerre:'baguette', baguete:'baguette', bagette:'baguette', croisant:'croissant', tresse:'tresse', treesee:'tresse' };
+  const SEED_ALIASES = { 'tradition':'Baguette tradition', 'croque':'Pain à croques', 'pain croque':'Pain à croques' };
+  const STOP_WORDS = new Set(['de','d','du','des','la','le','les','l','au','aux','a','et']);
+  function normKey(s){
+    let t = String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/œ/g,'oe');
+    t = t.replace(/['’`´]/g,' ').replace(/(\d),(\d)/g,'$1.$2').replace(/[^a-z0-9.\s]/g,' ').replace(/(\d)\s+(kg|g)\b/g,'$1$2');
+    const out = [];
+    t.split(/\s+/).filter(Boolean).forEach(w => {
+      if(STOP_WORDS.has(w)) return;
+      w = SYN_WORDS[w] || w;
+      w.split(' ').forEach(x => {
+        if(x.length > 3 && /[^s]s$/.test(x)) x = x.slice(0,-1);
+        out.push(x);
+      });
+    });
+    return out.join(' ');
+  }
+  function capFirst(s){ s = String(s||'').trim().replace(/\s+/g,' '); return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+  function allAliases(){ return Object.assign({}, SEED_ALIASES, prodSettings.aliases || {}); }
+  function buildCatalog(){
+    if(catCache) return catCache;
+    const aliases = allAliases(), map = {}, spell = {};
+    (prodSettings.names || []).forEach(n => { const k = normKey(n); if(k && !map[k]) map[k] = capFirst(n); });
+    const seen = (name) => {
+      let n = capFirst(name); if(!n) return;
+      let k = normKey(n);
+      if(aliases[k]){ n = aliases[k]; k = normKey(n); }
+      if(!k) return;
+      (spell[k] = spell[k] || {})[n] = ((spell[k][n]) || 0) + 1;
+    };
+    clients.forEach(c => (c.products || []).forEach(seen));
+    Object.keys(aliases).forEach(k => { const n = aliases[k], kk = normKey(n); if(kk && !map[kk] && !spell[kk]) (spell[kk] = spell[kk] || {})[capFirst(n)] = 0; });
+    Object.keys(spell).forEach(k => {
+      if(map[k]) return;
+      const opts = Object.keys(spell[k]).sort((a,b) => spell[k][b] - spell[k][a]);
+      map[k] = opts[0];
+    });
+    catCache = map;
+    return map;
+  }
+  function canonProduct(name){
+    const raw = capFirst(name);
+    let k = normKey(raw);
+    if(!k) return { key:'', name: raw };
+    const al = allAliases()[k];
+    if(al){ raw && (k = normKey(al)); }
+    const cat = buildCatalog();
+    return { key:k, name: cat[k] || capFirst(al || raw) };
+  }
+  function catalogList(){ const m = buildCatalog(); return Object.keys(m).map(k => ({ key:k, name:m[k] })).sort((a,b) => a.name.localeCompare(b.name,'fr')); }
+  function uniqueProducts(list){
+    const seen = new Set(), out = [];
+    (list || []).forEach(p => { const c = canonProduct(p); if(c.key && !seen.has(c.key)){ seen.add(c.key); out.push(c.name); } });
+    return out;
+  }
+  function saveProdSettings(){
+    catCache = null;
+    if(db){ return db.collection('settings').doc('products').set(JSON.parse(JSON.stringify(prodSettings))); }
+    return Promise.resolve();
+  }
+  // enregistre dans le catalogue officiel les noms qui n'y sont pas encore
+  function learnProducts(names){
+    const cat = buildCatalog(); let changed = false;
+    names.forEach(n => { const k = normKey(n); if(k && !cat[k]){ prodSettings.names = (prodSettings.names||[]).concat([n]); cat[k] = n; changed = true; } });
+    if(changed) saveProdSettings();
+  }
+  // ajoute un total à un cumul en regroupant les écritures différentes d'un même produit
+  function addTotal(bucket, name, qty){
+    const c = canonProduct(name); if(!c.key) return;
+    if(!bucket[c.key]) bucket[c.key] = { name: c.name, qty: 0 };
+    bucket[c.key].qty += Number(qty) || 0;
+  }
+  // clients avec suivi « commande prête / facturé » (modifiable fiche client : Auto / Oui / Non)
+  const TRACKED_RE = /hermitage|ponton|royal|castel|casino/;
+  function isTracked(o){
+    const c = clients.find(x => x.id === o.clientId);
+    if(c && c.tracking === true) return true;
+    if(c && c.tracking === false) return false;
+    return TRACKED_RE.test(normKey(o.clientName || (c && c.name) || ''));
+  }
+  async function toggleOrderFlag(id, flag){
+    const o = orders.find(x => x.id === id); if(!o) return;
+    const on = !o[flag];
+    const who = currentEmployee ? currentEmployee.name : '';
+    const upd = Object.assign({}, o, { [flag]: on, [flag+'By']: on ? who : '', [flag+'At']: on ? Date.now() : 0 });
+    o[flag] = on;   // retour visuel immédiat
+    await saveOrder(upd, o, (flag==='ready' ? 'Prête à livrer' : 'Facturé') + (on ? ' : coché' : ' : décoché'));
+  }
   function orderItemsSummary(o){ return (o.items||[]).map(it => `${it.qty}×${it.name}`).join(', ') || 'aucun article'; }
   function fmtDate(d){
     if(!d) return 'Sans date';
@@ -374,8 +476,16 @@
 
     db.collection('clients').orderBy('name','asc').onSnapshot(snap => {
       clients = snap.docs.map(d => ({ id: d.id, products: [], ...d.data() }));
+      catCache = null;
       renderCurrentView();
     }, err => { setSyncStatus(false, 'Connexion perdue'); });
+
+    db.collection('settings').doc('products').onSnapshot(doc => {
+      const d = doc.exists ? doc.data() : {};
+      prodSettings = { names: d.names || [], aliases: d.aliases || {} };
+      catCache = null;
+      renderCurrentView();
+    }, err => {});
 
     db.collection('orders').onSnapshot(snap => {
       orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -781,7 +891,7 @@
   function clientProducts(){
     if(!draft.clientId) return [];
     const c = clients.find(x => x.id === draft.clientId);
-    return c && c.products ? c.products : [];
+    return c && c.products ? uniqueProducts(c.products) : [];
   }
 
   function formHtml(){
@@ -813,10 +923,11 @@
         ) : `<span class="hint">Choisis un client pour voir ses produits habituels.</span>`}
         <button type="button" class="other" id="addCustom">+ Autre produit</button>
       </div>
+      <datalist id="prodDL">${catalogList().map(p => `<option value="${escapeHtml(p.name)}">`).join('')}</datalist>
       <div class="items-list" id="itemsList">
         ${draft.items.map((it, idx) => `
           <div class="item-row" data-idx="${idx}">
-            <input type="text" class="it-name" value="${escapeHtml(it.name)}" placeholder="Article">
+            <input type="text" class="it-name" list="prodDL" autocomplete="off" value="${escapeHtml(it.name)}" placeholder="Article">
             <input type="number" class="it-qty" min="0" step="1" value="${it.qty}" placeholder="Qté">
             <button type="button" class="del" data-idx="${idx}">✕</button>
           </div>
@@ -883,7 +994,12 @@
     document.getElementById('quickAdd').addEventListener('click', e => {
       const b = e.target.closest('button'); if(!b) return;
       if(b.id === 'addCustom'){ draft.items.push({name:'', qty:1}); }
-      else { draft.items.push({name:b.dataset.p, qty:1}); }
+      else {
+        const ck = canonProduct(b.dataset.p).key;
+        const ex = draft.items.find(x => canonProduct(x.name).key === ck);
+        if(ex){ ex.qty = (Number(ex.qty)||0) + 1; toast('Déjà dans la commande : quantité +1.'); }
+        else draft.items.push({name:b.dataset.p, qty:1});
+      }
       refreshForm();
     });
     const itemsList = document.getElementById('itemsList');
@@ -893,6 +1009,12 @@
       const idx = Number(row.dataset.idx);
       if(e.target.classList.contains('it-name')) draft.items[idx].name = e.target.value;
       if(e.target.classList.contains('it-qty')) draft.items[idx].qty = e.target.value;
+    });
+    itemsList.addEventListener('change', e => {
+      if(!e.target.classList.contains('it-name')) return;
+      const row = e.target.closest('.item-row'); if(!row) return;
+      const c = canonProduct(e.target.value);
+      if(c.key){ e.target.value = c.name; draft.items[Number(row.dataset.idx)].name = c.name; }
     });
     const dd = document.getElementById('deliveryDate');
     if(dd) dd.addEventListener('input', e => draft.deliveryDate = e.target.value);
@@ -958,8 +1080,15 @@
   async function submitOrder(){
     if(Date.now() - lastCommitAt < 1500) return;   // anti double-clic
     if(!draft.clientId){ toast('Choisis ou crée un client pour cette commande.'); return; }
-    const items = draft.items.map(it => ({ name:(it.name||'').trim(), qty:Number(it.qty)||0 })).filter(it => it.name);
-    if(items.length === 0){ toast('Ajoute au moins un article.'); return; }
+    const rawItems = draft.items.map(it => ({ name:(it.name||'').trim(), qty:Number(it.qty)||0 })).filter(it => it.name);
+    if(rawItems.length === 0){ toast('Ajoute au moins un article.'); return; }
+    const items = [], itemIdx = {};
+    rawItems.forEach(it => {
+      const c = canonProduct(it.name);
+      if(c.key in itemIdx){ items[itemIdx[c.key]].qty += it.qty; }
+      else { itemIdx[c.key] = items.length; items.push({ name:c.name, qty:it.qty }); }
+    });
+    learnProducts(items.map(i => i.name));
     const prev = editingOrderId ? orders.find(o=>o.id===editingOrderId) : null;
     if(prev && draft.clientId !== prev.clientId){ toast("Le client d'une commande existante ne peut pas être changé."); return; }
 
@@ -989,6 +1118,7 @@
       updatedBy: currentEmployee ? currentEmployee.name : '',
       updatedAt: Date.now(),
     };
+    if(prev){ ['ready','readyBy','readyAt','invoiced','invoicedBy','invoicedAt'].forEach(k => { if(prev[k] !== undefined) order[k] = prev[k]; }); }
     if(!editingOrderId){ commitOrder(order, null); return; }
     if(!prev){ order.id = null; order.createdAt = Date.now(); order.createdBy = currentEmployee ? currentEmployee.name : ''; commitOrder(order, null); return; }
     askChoice(
@@ -1135,11 +1265,7 @@
 
     const prodOrders = orders.filter(o => o.deliveryDate === prodDate);
     const prodTotals = {};
-    prodOrders.forEach(o => (o.items||[]).forEach(it => {
-      const key = it.name.trim().toLowerCase();
-      if(!prodTotals[key]) prodTotals[key] = { name: it.name.trim(), qty: 0 };
-      prodTotals[key].qty += Number(it.qty)||0;
-    }));
+    prodOrders.forEach(o => (o.items||[]).forEach(it => addTotal(prodTotals, it.name, it.qty)));
     const prodRows = Object.values(prodTotals).sort((a,b)=>b.qty-a.qty);
 
     root.innerHTML = `
@@ -1153,13 +1279,18 @@
           const dayOrders = orders.filter(o => o.deliveryDate === iso).sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
           return `
             <div class="cal-day ${iso===todayISO?'today':''}">
+              ${iso===todayISO ? '<span class="today-tag">Aujourd\'hui</span>' : ''}
               <div class="cal-day-head" data-date="${iso}" style="cursor:pointer;" title="Voir le total à produire ce jour"><span class="dname">${DAY_NAMES[(d.getDay()+6)%7]}</span><span class="dnum">${d.getDate()}</span></div>
               ${dayOrders.length ? dayOrders.map(o => `
-                <div class="cal-order" data-id="${o.id}" style="position:relative;">
+                <div class="cal-order ${o.ready ? 'is-ready' : ''} ${isTracked(o) && o.invoiced ? 'is-invoiced' : ''}" data-id="${o.id}" style="position:relative;">
                   <button class="cal-del" data-id="${o.id}" title="Supprimer" style="position:absolute;top:4px;right:5px;background:none;border:none;color:var(--jam);font-size:12px;cursor:pointer;padding:2px;line-height:1;">✕</button>
                   <div class="cn" style="padding-right:14px;">${escapeHtml(o.clientName)}</div>
-                  <div class="ci">${(o.items||[]).map(it=>`${it.qty}×${escapeHtml(it.name)}`).join(', ')}</div>
+                  <div class="ci">${(o.items||[]).map(it=>`${it.qty}×${escapeHtml(canonProduct(it.name).name)}`).join(', ')}</div>
                   ${o.notes ? `<div class="ci" style="font-style:italic;opacity:0.85;">${escapeHtml(o.notes)}</div>` : ''}
+                  <div class="cal-flags">
+                    <label class="cal-flag ${o.ready?'on':''}" title="${o.ready && o.readyBy ? 'Cochée par '+escapeHtml(o.readyBy) : ''}"><input type="checkbox" class="flag-cb" data-id="${o.id}" data-flag="ready" ${o.ready?'checked':''}> Prête à livrer</label>
+                    ${isTracked(o) ? `<label class="cal-flag ${o.invoiced?'on':''}" title="${o.invoiced && o.invoicedBy ? 'Cochée par '+escapeHtml(o.invoicedBy) : ''}"><input type="checkbox" class="flag-cb" data-id="${o.id}" data-flag="invoiced" ${o.invoiced?'checked':''}> Facturé</label>` : ''}
+                  </div>
                 </div>
               `).join('') : '<div class="cal-empty">—</div>'}
             </div>
@@ -1190,7 +1321,7 @@
           const cl = clients.find(c => c.id === o.clientId);
           return `<div style="padding:8px 0;border-bottom:1px solid var(--border);">
             <strong>${escapeHtml(o.clientName)}</strong>${cl && (cl.phone||cl.address) ? ` <span class="hint" style="display:inline;">— ${escapeHtml([cl.phone,cl.address].filter(Boolean).join(' · '))}</span>` : ''}
-            <div class="hint" style="margin-top:2px;">${(o.items||[]).map(it=>`${it.qty}×${escapeHtml(it.name)}`).join(', ')}</div>
+            <div class="hint" style="margin-top:2px;">${(o.items||[]).map(it=>`${it.qty}×${escapeHtml(canonProduct(it.name).name)}`).join(', ')}</div>
             ${o.notes ? `<div class="hint" style="font-style:italic;">${escapeHtml(o.notes)}</div>` : ''}
           </div>`;
         }).join('')}
@@ -1209,7 +1340,8 @@
     document.getElementById('thisWeek').addEventListener('click', () => { calWeekStart = startOfWeek(new Date()); renderCalendrier(); });
     document.getElementById('prodDateInput').addEventListener('input', e => { prodDate = e.target.value; renderCalendrier(); });
     root.querySelectorAll('.cal-day-head').forEach(el => el.addEventListener('click', () => { prodDate = el.dataset.date; renderCalendrier(); document.querySelector('.recap-client').scrollIntoView({behavior:'smooth', block:'nearest'}); }));
-    root.querySelectorAll('.cal-order').forEach(el => el.addEventListener('click', e => { e.stopPropagation(); openOrderDetail(el.dataset.id); }));
+    root.querySelectorAll('.cal-order').forEach(el => el.addEventListener('click', e => { e.stopPropagation(); if(e.target.closest('.cal-flags')) return; openOrderDetail(el.dataset.id); }));
+    root.querySelectorAll('.flag-cb').forEach(cb => cb.addEventListener('change', e => { e.stopPropagation(); toggleOrderFlag(cb.dataset.id, cb.dataset.flag); }));
     root.querySelectorAll('.cal-del').forEach(b => b.addEventListener('click', e => {
       e.stopPropagation();
       askConfirm('Supprimer cette commande ?', () => deleteOrderDb(b.dataset.id));
@@ -1230,7 +1362,7 @@
         return `<div class="p-order">
           <div class="p-client">${escapeHtml(o.clientName)}</div>
           ${cl && (cl.phone||cl.address) ? `<div class="p-meta">${escapeHtml([cl.phone,cl.address].filter(Boolean).join(' · '))}</div>` : ''}
-          <div class="p-items">${(o.items||[]).map(it=>`${it.qty} × ${escapeHtml(it.name)}`).join(', ')}</div>
+          <div class="p-items">${(o.items||[]).map(it=>`${it.qty} × ${escapeHtml(canonProduct(it.name).name)}`).join(', ')}</div>
           ${o.notes ? `<div class="p-notes">${escapeHtml(o.notes)}</div>` : ''}
         </div>`;
       }).join('')}
@@ -1253,11 +1385,7 @@
       const k = o.clientId || o.clientName;
       if(!byClient[k]) byClient[k] = { name:o.clientName, count:0, products:{} };
       byClient[k].count += 1;
-      (o.items||[]).forEach(it => {
-        const key = it.name.trim().toLowerCase();
-        if(!byClient[k].products[key]) byClient[k].products[key] = { name: it.name.trim(), qty: 0 };
-        byClient[k].products[key].qty += Number(it.qty)||0;
-      });
+      (o.items||[]).forEach(it => addTotal(byClient[k].products, it.name, it.qty));
     });
     const clientRows = Object.values(byClient).sort((a,b)=>a.name.localeCompare(b.name));
 
@@ -1321,12 +1449,15 @@
           <button class="btn-ghost" id="importBtn">Importer</button>
         </div>
       ` : ''}
+      ${canCreateClients() ? `<div class="import-box"><span>Harmoniser l'écriture des produits (fusionner les doublons, renommer)</span><button class="btn-ghost" id="prodMgrBtn">Produits</button></div>` : ''}
       <input type="text" id="clientListSearch" placeholder="Rechercher un client…" value="${escapeHtml(clientSearchQuery)}" style="max-width:260px;margin-bottom:16px;">
       <div class="client-grid" id="clientGrid"></div>
     `;
     const newClientBtn = document.getElementById('newClientBtn');
     if(newClientBtn) newClientBtn.addEventListener('click', () => openClientModal(null));
     document.getElementById('clientListSearch').addEventListener('input', e => { clientSearchQuery = e.target.value; renderClientGrid(); });
+    const pmb = document.getElementById('prodMgrBtn');
+    if(pmb) pmb.addEventListener('click', openProductManager);
     const importBtn = document.getElementById('importBtn');
     if(importBtn) importBtn.addEventListener('click', runImport);
     renderClientGrid();
@@ -1338,7 +1469,7 @@
       if(existing){
         const current = existing.products || [];
         const merged = current.slice();
-        entry.products.forEach(p => { if(!merged.some(x=>x.toLowerCase()===p.toLowerCase())) merged.push(p); });
+        entry.products.forEach(p => { if(!merged.some(x=>canonProduct(x).key===canonProduct(p).key)) merged.push(p); });
         if(merged.length !== current.length){
           await saveClient({ ...existing, products: merged });
           updated++;
@@ -1386,6 +1517,12 @@
         <input type="text" id="mAddress" value="${escapeHtml(c.address||'')}">
         <label>Notes</label>
         <textarea id="mNotes">${escapeHtml(c.notes||'')}</textarea>
+        <label>Case « Facturé » dans le calendrier</label>
+        <select id="mTracking">
+          <option value="auto" ${c.tracking==null?'selected':''}>Automatique (Hermitage, Ponton, Royal, Castel, Casino seulement)</option>
+          <option value="yes" ${c.tracking===true?'selected':''}>Oui, pour ce client</option>
+          <option value="no" ${c.tracking===false?'selected':''}>Non</option>
+        </select>
         <label>Produits habituels</label>
         <div class="product-tags" id="productTags"></div>
         <div class="add-product-row">
@@ -1411,8 +1548,9 @@
     renderTags();
     document.getElementById('addProductBtn').addEventListener('click', () => {
       const input = document.getElementById('newProductName');
-      const v = input.value.trim();
-      if(v && !productList.some(p=>p.toLowerCase()===v.toLowerCase())){ productList.push(v); renderTags(); }
+      const c = canonProduct(input.value);
+      if(c.key && !productList.some(p=>canonProduct(p).key===c.key)){ productList.push(c.name); renderTags(); }
+      else if(c.key) toast('Ce produit est déjà dans la liste.');
       input.value = ''; input.focus();
     });
     document.getElementById('newProductName').addEventListener('keydown', e => { if(e.key==='Enter'){ e.preventDefault(); document.getElementById('addProductBtn').click(); } });
@@ -1421,7 +1559,8 @@
     document.getElementById('mSave').addEventListener('click', async () => {
       const name = document.getElementById('mName').value.trim();
       if(!name){ toast('Le nom est obligatoire.'); return; }
-      await saveClient({ id: isNew ? null : id, name, phone: document.getElementById('mPhone').value.trim(), email: document.getElementById('mEmail').value.trim(), address: document.getElementById('mAddress').value.trim(), notes: document.getElementById('mNotes').value.trim(), products: productList });
+      await saveClient({ id: isNew ? null : id, name, phone: document.getElementById('mPhone').value.trim(), email: document.getElementById('mEmail').value.trim(), address: document.getElementById('mAddress').value.trim(), notes: document.getElementById('mNotes').value.trim(), tracking: ({yes:true,no:false})[document.getElementById('mTracking').value] ?? null, products: uniqueProducts(productList) });
+      learnProducts(productList);
       closeModal(); renderClients();
     });
     if(!isNew){
@@ -1430,6 +1569,82 @@
         askConfirm('Supprimer ce client ?', async () => { await deleteClientDb(id); closeModal(); renderClients(); });
       });
     }
+  }
+
+  // ---------- gestion des produits (renommer / fusionner) ----------
+  function productUsage(){
+    const use = {};
+    const add = (name, kind) => { const c = canonProduct(name); if(!c.key) return; const u = use[c.key] = use[c.key] || { orders:0, clients:0, spells:{} }; u[kind]++; u.spells[capFirst(name)] = 1; };
+    orders.forEach(o => (o.items||[]).forEach(it => add(it.name, 'orders')));
+    clients.forEach(c => (c.products||[]).forEach(p => add(p, 'clients')));
+    return use;
+  }
+  function openProductManager(){
+    const use = productUsage();
+    const list = catalogList();
+    const root = document.getElementById('modalRoot');
+    root.innerHTML = `<div class="modal-bg" id="pmBg"><div class="modal">
+      <h3>Produits</h3>
+      <div class="hint" style="margin-bottom:10px;">Une seule écriture officielle par produit. Les majuscules, accents, pluriels et « de / d' » sont déjà ignorés automatiquement. Utilise <strong>Fusionner</strong> pour deux noms vraiment différents (ex. « tradition » et « baguette tradition »).</div>
+      <input type="text" id="pmSearch" placeholder="Rechercher un produit…" style="margin-bottom:10px;">
+      <div id="pmList"></div>
+      <div class="modal-actions"><button class="btn-ghost" id="pmClose" style="width:100%;">Fermer</button></div>
+    </div></div>`;
+    function draw(){
+      const q = normKey(document.getElementById('pmSearch').value);
+      document.getElementById('pmList').innerHTML = list.filter(p => !q || p.key.includes(q)).map(p => {
+        const u = use[p.key] || { orders:0, clients:0, spells:{} };
+        const others = Object.keys(u.spells).filter(x => x !== p.name);
+        return `<div style="padding:8px 0;border-bottom:1px solid var(--border);">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;"><strong style="flex:1;min-width:120px;">${escapeHtml(p.name)}</strong>
+            <button class="btn-ghost pmRen" data-k="${escapeHtml(p.key)}" style="padding:3px 10px;font-size:12px;">Renommer</button>
+            <button class="btn-ghost pmMer" data-k="${escapeHtml(p.key)}" style="padding:3px 10px;font-size:12px;">Fusionner</button></div>
+          <div class="hint" style="margin:2px 0 0;">${u.orders} ligne${u.orders>1?'s':''} de commande · ${u.clients} client${u.clients>1?'s':''}${others.length ? ` · aussi écrit : ${others.map(escapeHtml).join(', ')}` : ''}</div>
+        </div>`;
+      }).join('') || '<div class="hint">Aucun produit.</div>';
+      document.querySelectorAll('.pmRen').forEach(b => b.addEventListener('click', () => pmRename(b.dataset.k)));
+      document.querySelectorAll('.pmMer').forEach(b => b.addEventListener('click', () => pmMerge(b.dataset.k)));
+    }
+    function reopen(){ openProductManager(); }
+    function pmRename(k){
+      const cur = buildCatalog()[k];
+      let inp = null;
+      askChoice(`<p style="margin:0 0 8px;">Nouveau nom pour <strong>${escapeHtml(cur)}</strong> :</p><input type="text" id="pmNewName" value="${escapeHtml(cur)}">`, [
+        { label:'Renommer', cls:'btn-main', onClick: async () => {
+          const nn = capFirst(inp.value);
+          if(!nn) return;
+          const nk = normKey(nn);
+          if(nk !== k && buildCatalog()[nk]){ toast('Ce nom existe déjà : utilise Fusionner.'); return; }
+          const al = Object.assign({}, prodSettings.aliases || {});
+          Object.keys(al).forEach(a => { if(normKey(al[a]) === k) al[a] = nn; });
+          if(nk !== k) al[k] = nn;
+          prodSettings.aliases = al;
+          prodSettings.names = (prodSettings.names||[]).filter(n => normKey(n) !== k).concat([nn]);
+          await saveProdSettings(); logAction('Produit renommé', `${cur} → ${nn}`); toast('Renommé.'); reopen();
+        } }, { label:'Annuler' }]);
+      inp = document.getElementById('pmNewName');
+    }
+    function pmMerge(k){
+      const cat = buildCatalog(), cur = cat[k];
+      const opts = catalogList().filter(p => p.key !== k);
+      let sel = null;
+      askChoice(`<p style="margin:0 0 8px;"><strong>${escapeHtml(cur)}</strong> sera compté comme :</p><select id="pmTarget">${opts.map(p => `<option value="${escapeHtml(p.key)}">${escapeHtml(p.name)}</option>`).join('')}</select><div class="hint" style="margin-top:8px;">Dans les totaux, le récap, l'impression et les formulaires, « ${escapeHtml(cur)} » deviendra le produit choisi (anciennes commandes comprises).</div>`, [
+        { label:'Fusionner', cls:'btn-main', onClick: async () => {
+          const tk = sel.value, target = cat[tk];
+          if(!target) return;
+          const al = Object.assign({}, prodSettings.aliases || {});
+          Object.keys(al).forEach(a => { if(normKey(al[a]) === k) al[a] = target; });
+          al[k] = target;
+          prodSettings.aliases = al;
+          prodSettings.names = (prodSettings.names||[]).filter(n => normKey(n) !== k).concat(prodSettings.names.some(n => normKey(n) === tk) ? [] : [target]);
+          await saveProdSettings(); logAction('Produits fusionnés', `${cur} → ${target}`); toast('Fusionné.'); reopen();
+        } }, { label:'Annuler' }]);
+      sel = document.getElementById('pmTarget');
+    }
+    document.getElementById('pmSearch').addEventListener('input', draw);
+    document.getElementById('pmClose').addEventListener('click', closeModal);
+    document.getElementById('pmBg').addEventListener('click', e => { if(e.target.id==='pmBg') closeModal(); });
+    draw();
   }
   function closeModal(){ document.getElementById('modalRoot').innerHTML = ''; }
 
